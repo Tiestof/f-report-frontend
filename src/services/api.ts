@@ -27,8 +27,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      useAuthStore.getState().logout();
-      window.location.href = '/login';
+      const token = useAuthStore.getState().token;
+      // 🔹 Solo cerrar sesión y redirigir si había token activo (usuario logueado)
+      if (token) {
+        useAuthStore.getState().logout();
+        window.location.href = '/login';
+      }
+      // 🔹 Si no hay token (intento de login fallido), dejar que el catch del componente maneje el error
     }
     return Promise.reject(error);
   }

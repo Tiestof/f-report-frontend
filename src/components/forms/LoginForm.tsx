@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom'; // ✅ Navegación interna
+import { useNavigate } from 'react-router-dom';
 import RUTInput from '../ui/RUTInput';
 import PasswordInput from '../ui/PasswordInput';
 import { cleanRUTForAPI } from '../../utils/rutFormatter';
@@ -22,7 +22,7 @@ export default function LoginForm() {
   const [errorMsg, setErrorMsg] = useState('');
 
   const setUser = useAuthStore((state) => state.setUser);
-  const navigate = useNavigate(); // ✅ hook de navegación
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +46,6 @@ export default function LoginForm() {
         console.log('DEBUG TOKEN GUARDADO:', data.token);
         console.log('DEBUG USUARIO:', data.usuario);
 
-        // ✅ Navegación interna sin refrescar
         if (data.usuario.tipo === 1) {
           navigate('/dashboard-tecnico');
         } else if (data.usuario.tipo === 2) {
@@ -62,21 +61,21 @@ export default function LoginForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:gap-4">
       <RUTInput value={rut} onChange={(v, valid) => { setRut(v); setRutValid(valid); }} />
       <PasswordInput value={password} onChange={setPassword} minLength={MIN_PASSWORD_LENGTH} />
 
-      {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
+      {errorMsg && <p className="text-xs sm:text-sm text-red-600">{errorMsg}</p>}
 
       <button
         type="submit"
         disabled={loading}
-        className="bg-green-700 hover:bg-green-800 text-white py-2 rounded-md transition-colors disabled:bg-gray-400"
+        className="bg-green-700 hover:bg-green-800 text-white py-2 rounded-md transition-colors disabled:bg-gray-400 text-sm sm:text-base"
       >
         {loading ? 'Ingresando...' : 'Ingresar'}
       </button>
 
-      <div className="flex justify-between text-xs text-gray-600 mt-2">
+      <div className="flex flex-col sm:flex-row justify-between gap-2 sm:gap-0 text-[11px] sm:text-xs text-gray-600 mt-2">
         <span className="cursor-not-allowed opacity-50">Recuperar contraseña</span>
         <label className="flex items-center gap-1">
           <input type="checkbox" className="accent-green-700" /> Recordarme
