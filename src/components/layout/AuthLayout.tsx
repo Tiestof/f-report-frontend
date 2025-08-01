@@ -4,7 +4,7 @@
  * Proporciona fondo, centrado de contenido y footer.
  */
 
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react'; // ✅ type-only import
 
 interface AuthLayoutProps {
   children: ReactNode;
@@ -15,7 +15,7 @@ export default function AuthLayout({ children }: AuthLayoutProps) {
     <div className="min-h-screen flex flex-col bg-[var(--primary-green)]">
       <div className="flex flex-1 justify-center items-center p-4">
         <div className="bg-white w-full max-w-md rounded-xl shadow-lg p-6 sm:p-8">
-          <h1 className="text-3xl font-bold text-center mb-6 text-gray-800">F-REPORT</h1>
+          <h1 className="text-7xl font-bold text-center mb-6 text-gray-800">F-REPORT</h1>
           {children}
         </div>
       </div>

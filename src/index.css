@@ -13,3 +13,15 @@ body {
   min-height: 100vh;
   background-color: var(--primary-green);
 }
+
+/* Quitar botón nativo de mostrar contraseña en navegadores */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear,
+input[type="password"]::-webkit-credentials-auto-fill-button,
+input[type="password"]::-webkit-textfield-decoration-container {
+  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
+  position: absolute;
+  right: -9999px;
+}
