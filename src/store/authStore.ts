@@ -6,10 +6,13 @@
 
 import { create } from 'zustand';
 
-interface Usuario {
+export interface Usuario {
   rut: string;
   nombre: string;
   tipo: number; // 1 = Técnico, 2 = Supervisor
+  apellido_paterno?: string;
+  apellido_materno?: string;
+  email?: string;
 }
 
 interface AuthState {
@@ -40,7 +43,7 @@ const useAuthStore = create<AuthState>((set, get) => ({
 
   isAuthenticated: () => {
     return get().token !== null;
-  }
+  },
 }));
 
 export default useAuthStore;
