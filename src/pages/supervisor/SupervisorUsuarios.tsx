@@ -190,9 +190,7 @@ const SupervisorUsuarios = () => {
           <h1 className="text-xl sm:text-2xl font-extrabold text-gray-800 mb-2">
             Gestión de Usuarios
           </h1>
-          <button onClick={() => setShowFormHelp(true)} title="Ayuda formulario">
-            <QuestionMarkCircleIcon className="h-7 w-7 text-blue-600" />
-          </button>
+
         </div>
         <p className="text-gray-600 mb-4 sm:mb-6">Alta, baja y modificación de cuentas de usuario.</p>
 
@@ -201,7 +199,7 @@ const SupervisorUsuarios = () => {
           <h2 className="text-lg font-bold text-gray-700 mb-4 flex justify-between items-center">
             {editingUser ? 'Editar Usuario' : 'Crear Usuario'}
             <button onClick={() => setShowFormHelp(true)} title="Ayuda formulario">
-              <QuestionMarkCircleIcon className="h-5 w-5 text-blue-600" />
+              <QuestionMarkCircleIcon className="h-6 w-6 text-blue-600" />
             </button>
           </h2>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -269,6 +267,14 @@ const SupervisorUsuarios = () => {
           </form>
         </div>
 
+         <p>Listado de Usuarios</p>
+         
+        <div className="flex justify-end mb-2">
+          <button onClick={() => setShowListHelp(true)} title="Ayuda listado">
+            <QuestionMarkCircleIcon className="h-6 w-6 text-blue-600" />
+          </button>
+        </div>
+
         {/* 📌 Búsqueda y filtro */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-2">
           <input
@@ -291,11 +297,7 @@ const SupervisorUsuarios = () => {
           </select>
         </div>
 
-        <div className="flex justify-end mb-2">
-          <button onClick={() => setShowListHelp(true)} title="Ayuda listado">
-            <QuestionMarkCircleIcon className="h-7 w-7 text-blue-600" />
-          </button>
-        </div>
+
 
         {/* 📌 Lista de usuarios */}
         <div className="bg-white shadow rounded-lg overflow-x-auto w-full max-w-full">

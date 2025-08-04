@@ -13,7 +13,7 @@ export const helpUsuariosConfig = {
       { field: 'Apellido Paterno', desc: 'Mínimo 4 caracteres.' },
       { field: 'Apellido Materno', desc: 'Mínimo 4 caracteres.' },
       { field: 'Correo electrónico', desc: 'Debe tener un formato válido. Ej: usuario@dominio.com' },
-      { field: 'Perfil', desc: 'Selecciona si es Técnico (1) o Supervisor (2).' },
+      { field: 'Perfil', desc: 'Selecciona si es Técnico o Supervisor.' },
       { field: 'Contraseña', desc: 'Se requiere al crear usuario. Al editar es opcional.' }
     ]
   },

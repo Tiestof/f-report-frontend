@@ -26,7 +26,7 @@ export const helpConfig = {
   },
   Configuración: {
     title: 'Configuración',
-    description: 'Ajusta opciones de tu cuenta y preferencias.'
+    description: 'Edición de tablas auxiliares.'
   },
   Ayuda: {
     title: 'Ayuda',
