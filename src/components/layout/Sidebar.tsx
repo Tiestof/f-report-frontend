@@ -1,7 +1,7 @@
 /**
  * Componente: Sidebar
  * Descripción: Menú lateral responsive para Supervisor y Técnico.
- * Modal de ayuda ahora muestra todas las opciones de helpConfig.
+ * Modal de ayuda ahora muestra todas las opciones con sus iconos y descripciones.
  */
 
 import type { FC } from 'react';
@@ -113,20 +113,29 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
         )}
       </aside>
 
-      {/* ✅ Modal de ayuda con todas las opciones */}
+      {/* ✅ Modal de ayuda con iconos */}
       {showHelp && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-4">{helpConfig.Ayuda.title}</h3>
             <p className="text-gray-700 mb-4">{helpConfig.Ayuda.description}</p>
 
-            <div className="space-y-3">
-              {Object.entries(helpConfig).map(([key, value]) => (
-                <div key={key} className="border-b pb-2">
-                  <h4 className="font-semibold text-gray-900">{value.title}</h4>
-                  <p className="text-sm text-gray-600">{value.description}</p>
-                </div>
-              ))}
+            <div className="space-y-4">
+              {menuItems.map((item) => {
+                const help = helpConfig[item.label as keyof typeof helpConfig];
+                if (!help) return null;
+                const Icon = item.icon;
+
+                return (
+                  <div key={item.label} className="flex items-start gap-3 border-b pb-2">
+                    <Icon className="h-6 w-6 text-blue-600 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-semibold text-gray-900">{help.title}</h4>
+                      <p className="text-sm text-gray-600">{help.description}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <button
