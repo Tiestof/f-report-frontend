@@ -2,7 +2,7 @@
  * Página: SupervisorUsuarios
  * Gestión de usuarios con validaciones de RUT, email y control de estado.
  * 100% responsive con soporte para mobile y tablet.
- * Incluye modales de ayuda para formulario y listado.
+ * Ahora incluye soporte completo para modo oscuro.
  */
 
 import { useEffect, useState } from 'react';
@@ -187,16 +187,17 @@ const SupervisorUsuarios = () => {
     <DashboardLayout>
       <div className="w-full max-w-screen overflow-x-hidden px-2 sm:px-4">
         <div className="flex justify-between items-center">
-          <h1 className="text-xl sm:text-2xl font-extrabold text-gray-800 mb-2">
+          <h1 className="text-xl sm:text-2xl font-extrabold text-gray-800 dark:text-gray-100 mb-2">
             Gestión de Usuarios
           </h1>
-
         </div>
-        <p className="text-gray-600 mb-4 sm:mb-6">Alta, baja y modificación de cuentas de usuario.</p>
+        <p className="text-gray-600 dark:text-gray-300 mb-4 sm:mb-6">
+          Alta, baja y modificación de cuentas de usuario.
+        </p>
 
         {/* 📌 Formulario */}
-        <div className="bg-white shadow rounded-lg p-3 sm:p-6 mb-6 w-full max-w-full">
-          <h2 className="text-lg font-bold text-gray-700 mb-4 flex justify-between items-center">
+        <div className="bg-white dark:bg-gray-700 shadow rounded-lg p-3 sm:p-6 mb-6 w-full max-w-full">
+          <h2 className="text-lg font-bold text-gray-700 dark:text-gray-100 mb-4 flex justify-between items-center">
             {editingUser ? 'Editar Usuario' : 'Crear Usuario'}
             <button onClick={() => setShowFormHelp(true)} title="Ayuda formulario">
               <QuestionMarkCircleIcon className="h-6 w-6 text-blue-600" />
@@ -204,7 +205,7 @@ const SupervisorUsuarios = () => {
           </h2>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Campos */}
-            {[ 
+            {[
               { label: 'RUT', name: 'rut', type: 'text' },
               { label: 'Nombre', name: 'nombre', type: 'text' },
               { label: 'Apellido Paterno', name: 'apellido_paterno', type: 'text' },
@@ -212,13 +213,17 @@ const SupervisorUsuarios = () => {
               { label: 'Correo electrónico', name: 'email', type: 'email' }
             ].map((field) => (
               <div key={field.name}>
-                <label className="text-sm font-medium text-gray-700">{field.label}</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                  {field.label}
+                </label>
                 <input
                   type={field.type}
                   name={field.name}
                   value={(formData as any)[field.name]}
                   onChange={handleChange}
-                  className={`border p-2 rounded w-full max-w-full ${errors[field.name] ? 'border-red-500' : ''}`}
+                  className={`border p-2 rounded w-full max-w-full ${
+                    errors[field.name] ? 'border-red-500' : ''
+                  }`}
                   disabled={field.name === 'rut' && !!editingUser}
                 />
                 {errors[field.name] && <p className="text-red-500 text-xs">{errors[field.name]}</p>}
@@ -226,7 +231,7 @@ const SupervisorUsuarios = () => {
             ))}
 
             <div>
-              <label className="text-sm font-medium text-gray-700">Perfil</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-200">Perfil</label>
               <select
                 name="tipo"
                 value={formData.tipo}
@@ -239,7 +244,7 @@ const SupervisorUsuarios = () => {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700">Contraseña</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-200">Contraseña</label>
               <input
                 type="password"
                 name="clave"
@@ -253,7 +258,7 @@ const SupervisorUsuarios = () => {
               <button
                 type="button"
                 onClick={handleCancel}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-2 rounded transition w-full sm:w-auto"
+                className="bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-100 px-3 py-2 rounded transition w-full sm:w-auto"
               >
                 Cancelar
               </button>
@@ -267,8 +272,8 @@ const SupervisorUsuarios = () => {
           </form>
         </div>
 
-         <p>Listado de Usuarios</p>
-         
+        <p className="text-gray-700 dark:text-gray-200 font-semibold mb-2">Listado de Usuarios</p>
+
         <div className="flex justify-end mb-2">
           <button onClick={() => setShowListHelp(true)} title="Ayuda listado">
             <QuestionMarkCircleIcon className="h-6 w-6 text-blue-600" />
@@ -297,10 +302,8 @@ const SupervisorUsuarios = () => {
           </select>
         </div>
 
-
-
         {/* 📌 Lista de usuarios */}
-        <div className="bg-white shadow rounded-lg overflow-x-auto w-full max-w-full">
+        <div className="bg-white dark:bg-gray-700 shadow rounded-lg overflow-x-auto w-full max-w-full">
           {loading ? (
             <Skeleton count={6} height={40} />
           ) : (
@@ -308,8 +311,8 @@ const SupervisorUsuarios = () => {
               {/* ✅ Vista tabla desktop */}
               <div className="hidden sm:block">
                 <table className="min-w-full">
-                  <thead className="bg-gray-100">
-                    <tr>
+                  <thead className="bg-gray-100 dark:bg-gray-800">
+                    <tr className="text-gray-700 dark:text-gray-200">
                       <th className="px-2 py-2 text-left">Estado</th>
                       <th className="px-2 py-2 text-left">RUT</th>
                       <th className="px-2 py-2 text-left">Nombre</th>
@@ -320,7 +323,7 @@ const SupervisorUsuarios = () => {
                   </thead>
                   <tbody>
                     {filteredUsuarios.map((u) => (
-                      <tr key={u.rut} className="border-t hover:bg-gray-50">
+                      <tr key={u.rut} className="border-t border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600">
                         <td className="px-2 py-2">
                           {u.activado ? (
                             <CheckCircleIcon className="h-6 w-6" style={{ color: '#22ff55' }} />
@@ -335,7 +338,7 @@ const SupervisorUsuarios = () => {
                         <td className="px-2 py-2 flex gap-2">
                           <button
                             onClick={() => handleEdit(u)}
-                            className="p-1 rounded hover:bg-gray-200"
+                            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-500"
                             title="Editar"
                           >
                             <PencilIcon className="h-5 w-5 text-blue-600" />
@@ -358,22 +361,22 @@ const SupervisorUsuarios = () => {
               {/* ✅ Vista tipo cards para móvil */}
               <div className="block sm:hidden space-y-3">
                 {filteredUsuarios.map((u) => (
-                  <div key={u.rut} className="border rounded-lg p-3 shadow-sm">
+                  <div key={u.rut} className="border dark:border-gray-600 rounded-lg p-3 shadow-sm bg-white dark:bg-gray-700">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="font-bold">{`${u.nombre} ${u.apellido_paterno}`}</span>
+                      <span className="font-bold text-gray-800 dark:text-gray-100">{`${u.nombre} ${u.apellido_paterno}`}</span>
                       {u.activado ? (
                         <CheckCircleIcon className="h-6 w-6" style={{ color: '#22ff55' }} />
                       ) : (
                         <XCircleIcon className="h-6 w-6" style={{ color: '#ff2222' }} />
                       )}
                     </div>
-                    <p className="text-sm text-gray-700"><strong>RUT:</strong> {formatRUTDisplay(u.rut)}</p>
-                    <p className="text-sm text-gray-700"><strong>Email:</strong> {u.email}</p>
-                    <p className="text-sm text-gray-700"><strong>Perfil:</strong> {u.tipo === 2 ? 'Supervisor' : 'Técnico'}</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-200"><strong>RUT:</strong> {formatRUTDisplay(u.rut)}</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-200"><strong>Email:</strong> {u.email}</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-200"><strong>Perfil:</strong> {u.tipo === 2 ? 'Supervisor' : 'Técnico'}</p>
                     <div className="flex justify-end gap-2 mt-2">
                       <button
                         onClick={() => handleEdit(u)}
-                        className="p-1 rounded bg-gray-200"
+                        className="p-1 rounded bg-gray-200 dark:bg-gray-600"
                         title="Editar"
                       >
                         <PencilIcon className="h-5 w-5 text-blue-600" />
@@ -398,9 +401,9 @@ const SupervisorUsuarios = () => {
       {/* ✅ Modal Ayuda Formulario */}
       {showFormHelp && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto text-gray-800 dark:text-gray-100">
             <h3 className="text-xl font-bold mb-2">{helpUsuariosConfig.form.title}</h3>
-            <p className="text-gray-700 mb-4">{helpUsuariosConfig.form.description}</p>
+            <p className="text-gray-700 dark:text-gray-300 mb-4">{helpUsuariosConfig.form.description}</p>
             <ul className="list-disc pl-5 space-y-2">
               {helpUsuariosConfig.form.fields.map((f) => (
                 <li key={f.field}>
@@ -421,9 +424,9 @@ const SupervisorUsuarios = () => {
       {/* ✅ Modal Ayuda Listado */}
       {showListHelp && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto text-gray-800 dark:text-gray-100">
             <h3 className="text-xl font-bold mb-2">{helpUsuariosConfig.listado.title}</h3>
-            <p className="text-gray-700 mb-4">{helpUsuariosConfig.listado.description}</p>
+            <p className="text-gray-700 dark:text-gray-300 mb-4">{helpUsuariosConfig.listado.description}</p>
             <ul className="space-y-2">
               {helpUsuariosConfig.listado.icons.map((icon, idx) => (
                 <li key={idx} className="flex items-center gap-2">

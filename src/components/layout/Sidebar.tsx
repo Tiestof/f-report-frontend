@@ -1,17 +1,20 @@
 /**
  * Componente: Sidebar
  * Descripción: Menú lateral responsive para Supervisor y Técnico.
- * Modal de ayuda ahora muestra todas las opciones con sus iconos y descripciones.
+ * Incluye botón de Modo Oscuro con iconos Sol/Luna.
+ * Ahora con logs de depuración para verificar cambios de tema.
  */
 
 import type { FC } from 'react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import UserHeader from './UserHeader';
 import { menuSupervisor, menuTecnico } from '../../utils/menuConfig';
 import { helpConfig } from '../../utils/helpConfig';
 import useAuthStore from '../../store/authStore';
 import HelpTooltip from './HelpTooltip';
+import { useThemeStore } from '../../store/themeStore';
+import { SunIcon, MoonIcon } from '@heroicons/react/24/outline';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -30,6 +33,14 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
 
   const menuItems = usuario?.tipo === 2 ? menuSupervisor : menuTecnico;
 
+  const { darkMode, toggleTheme } = useThemeStore();
+
+  // ✅ Debug para ver cuando darkMode cambia
+  useEffect(() => {
+    console.log('🌙 Estado actual darkMode:', darkMode);
+    console.log('📌 Clase dark aplicada en <html>?', document.documentElement.classList.contains('dark'));
+  }, [darkMode]);
+
   const handleMenuClick = (path: string, isHelp = false) => {
     if (isHelp) {
       setShowHelp(true);
@@ -45,6 +56,11 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
     if (isMobile) closeSidebar();
   };
 
+  const handleToggleTheme = () => {
+    console.log('🟢 Click en botón de modo oscuro/claro');
+    toggleTheme();
+  };
+
   return (
     <>
       {isMobile && isOpen && (
@@ -55,7 +71,7 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
       )}
 
       <aside
-        className={`bg-gray-900 text-white h-full transition-transform duration-300 z-40
+        className={`bg-gray-900 dark:bg-gray-800 text-white h-full transition-transform duration-300 z-40
           ${
             isMobile
               ? isOpen
@@ -78,7 +94,11 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
                 <button
                   onClick={() => handleMenuClick(item.path, isHelp)}
                   className={`flex items-center gap-3 px-3 py-2 mx-2 rounded-lg transition-colors w-full text-left
-                    ${isActive ? 'bg-blue-600' : 'hover:bg-gray-700'}`}
+                    ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : 'hover:bg-gray-700 dark:hover:bg-gray-600 text-gray-200 dark:text-gray-300'
+                    }`}
                 >
                   <item.icon className="h-6 w-6" />
                   {isOpen && <span className="text-sm font-medium">{item.label}</span>}
@@ -95,10 +115,25 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
           })}
         </nav>
 
+        {/* 🔘 Botón Modo Oscuro */}
+        <div className="mt-6 px-3">
+          <button
+            onClick={handleToggleTheme}
+            className="flex items-center gap-2 w-full bg-gray-700 dark:bg-gray-600 hover:bg-gray-600 dark:hover:bg-gray-500 text-white px-3 py-2 rounded-md transition"
+          >
+            {darkMode ? (
+              <SunIcon className="h-5 w-5 text-yellow-400" />
+            ) : (
+              <MoonIcon className="h-5 w-5 text-blue-300" />
+            )}
+            {isOpen && <span className="text-sm">{darkMode ? 'Modo Claro' : 'Modo Oscuro'}</span>}
+          </button>
+        </div>
+
         {!isMobile && (
           <button
             onClick={toggleSidebar}
-            className="absolute bottom-3 right-3 bg-gray-700 hover:bg-gray-600 p-2 rounded-full transition"
+            className="absolute bottom-3 right-3 bg-gray-700 dark:bg-gray-600 hover:bg-gray-600 dark:hover:bg-gray-500 p-2 rounded-full transition"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -116,9 +151,9 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
       {/* ✅ Modal de ayuda con iconos */}
       {showHelp && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-900 rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto text-gray-800 dark:text-gray-100">
             <h3 className="text-xl font-bold mb-4">{helpConfig.Ayuda.title}</h3>
-            <p className="text-gray-700 mb-4">{helpConfig.Ayuda.description}</p>
+            <p className="text-gray-700 dark:text-gray-300 mb-4">{helpConfig.Ayuda.description}</p>
 
             <div className="space-y-4">
               {menuItems.map((item) => {
@@ -127,11 +162,11 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
                 const Icon = item.icon;
 
                 return (
-                  <div key={item.label} className="flex items-start gap-3 border-b pb-2">
+                  <div key={item.label} className="flex items-start gap-3 border-b pb-2 border-gray-200 dark:border-gray-700">
                     <Icon className="h-6 w-6 text-blue-600 flex-shrink-0" />
                     <div>
-                      <h4 className="font-semibold text-gray-900">{help.title}</h4>
-                      <p className="text-sm text-gray-600">{help.description}</p>
+                      <h4 className="font-semibold">{help.title}</h4>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{help.description}</p>
                     </div>
                   </div>
                 );

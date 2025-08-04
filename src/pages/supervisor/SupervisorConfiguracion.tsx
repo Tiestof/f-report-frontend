@@ -2,7 +2,7 @@
  * Página: SupervisorConfiguracion
  * Descripción: Configuración general de tablas auxiliares del proyecto.
  * Permite seleccionar una tabla, listar, editar, crear y eliminar registros.
- * Incluye toasts y diseño responsive para móvil.
+ * Incluye toasts, diseño responsive para móvil y soporte para modo oscuro.
  */
 
 import { useState, useEffect } from 'react';
@@ -163,17 +163,17 @@ const SupervisorConfiguracion = () => {
   return (
     <DashboardLayout>
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4">
-        <h1 className="text-lg sm:text-2xl font-extrabold text-gray-800 text-center sm:text-left">
+        <h1 className="text-lg sm:text-2xl font-extrabold text-gray-800 dark:text-gray-100 text-center sm:text-left">
           Configuración de Tablas Auxiliares
         </h1>
       </div>
-      <p className="text-gray-600 mb-4 sm:mb-6 text-center sm:text-left">
+      <p className="text-gray-600 dark:text-gray-300 mb-4 sm:mb-6 text-center sm:text-left">
         Alta, baja y modificación de tablas auxiliares.
       </p>
 
       {!tablaSeleccionada ? (
-        <div className="bg-white shadow rounded-lg p-3 sm:p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+        <div className="bg-white dark:bg-gray-700 shadow rounded-lg p-3 sm:p-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
             Selecciona una tabla a configurar:
           </label>
           <select
@@ -190,16 +190,18 @@ const SupervisorConfiguracion = () => {
           </select>
         </div>
       ) : (
-        <div className="bg-white shadow rounded-lg p-3 sm:p-4">
+        <div className="bg-white dark:bg-gray-700 shadow rounded-lg p-3 sm:p-4">
           <div className="flex justify-between items-center mb-3">
-            <h2 className="text-base sm:text-lg font-bold">{tablaActual?.label}</h2>
+            <h2 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-100">
+              {tablaActual?.label}
+            </h2>
             <button onClick={() => setShowHelp(true)} title="Ayuda">
               <QuestionMarkCircleIcon className="h-6 w-6 text-blue-600" />
             </button>
           </div>
 
           {loading ? (
-            <Skeleton count={5} height={30} />
+            <Skeleton count={5} height={30} baseColor="#374151" highlightColor="#4B5563" />
           ) : (
             <div className="space-y-2">
               {registros.map((reg) => {
@@ -207,7 +209,7 @@ const SupervisorConfiguracion = () => {
                 return (
                   <div
                     key={id}
-                    className="flex flex-col sm:flex-row sm:gap-2 sm:items-center border p-2 rounded"
+                    className="flex flex-col sm:flex-row sm:gap-2 sm:items-center border p-2 rounded bg-gray-50 dark:bg-gray-800 dark:border-gray-600"
                   >
                     {Object.keys(reg).map((field) => (
                       <input
@@ -218,7 +220,7 @@ const SupervisorConfiguracion = () => {
                         }
                         disabled={false}
                         onChange={(e) => handleEditChange(e, field)}
-                        className="border p-1 rounded flex-1 mb-2 sm:mb-0"
+                        className="border p-1 rounded flex-1 mb-2 sm:mb-0 dark:bg-gray-700 dark:border-gray-500 dark:text-gray-100"
                       />
                     ))}
                     <div className="flex gap-2 justify-end">
@@ -231,7 +233,7 @@ const SupervisorConfiguracion = () => {
                           className={`p-2 rounded ${
                             Object.keys(editValues).some((f) => isModified(f))
                               ? 'bg-green-500 text-white hover:bg-green-600'
-                              : 'bg-gray-300 text-gray-500'
+                              : 'bg-gray-300 dark:bg-gray-600 text-gray-500'
                           }`}
                         >
                           <FaSave className="h-4 w-4" />
@@ -239,7 +241,7 @@ const SupervisorConfiguracion = () => {
                       ) : (
                         <button
                           onClick={() => handleEdit(reg)}
-                          className="p-2 rounded bg-gray-200 hover:bg-gray-300"
+                          className="p-2 rounded bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500"
                         >
                           <PencilIcon className="h-4 w-4 text-blue-600" />
                         </button>
@@ -256,7 +258,7 @@ const SupervisorConfiguracion = () => {
               })}
 
               {/* ➕ Nuevo registro */}
-              <div className="flex flex-col sm:flex-row sm:gap-2 sm:items-center border-t pt-3 mt-3">
+              <div className="flex flex-col sm:flex-row sm:gap-2 sm:items-center border-t dark:border-gray-600 pt-3 mt-3">
                 {Object.keys(registros[0] || { descripcion: '' }).map((field) => (
                   <input
                     key={field}
@@ -264,7 +266,7 @@ const SupervisorConfiguracion = () => {
                     placeholder={field}
                     value={nuevoRegistro[field] || ''}
                     onChange={handleNewChange}
-                    className="border p-1 rounded flex-1 mb-2 sm:mb-0"
+                    className="border p-1 rounded flex-1 mb-2 sm:mb-0 dark:bg-gray-700 dark:border-gray-500 dark:text-gray-100"
                   />
                 ))}
                 <div className="flex justify-end">
@@ -287,7 +289,7 @@ const SupervisorConfiguracion = () => {
                 setEditValues({});
                 setNuevoRegistro({});
               }}
-              className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-2 rounded"
+              className="bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-100 px-3 py-2 rounded"
             >
               Cancelar
             </button>

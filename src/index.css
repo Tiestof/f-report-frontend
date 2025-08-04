@@ -1,20 +1,44 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
- 
+
 :root {
   --primary-green: #233945;
 }
 
-/* Mantener fondo base de la aplicación */
+/* ✅ Fondo base claro */
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
   background-color: var(--primary-green);
+  color: #1f2937; /* Texto base oscuro */
 }
 
-/* Quitar botón nativo de mostrar contraseña en navegadores */
+/* ✅ Modo oscuro global */
+html.dark body {
+  background-color: #111827; /* Fondo global dark */
+  color: #f3f4f6; /* Texto base claro */
+}
+
+/* ✅ Ajustar títulos y textos globales */
+h1, h2, h3, h4, h5, h6 {
+  @apply text-gray-800 dark:text-gray-100;
+}
+
+p, span, label {
+  @apply text-gray-700 dark:text-gray-300;
+}
+
+/* ✅ Inputs y selects adaptados */
+input,
+select,
+textarea {
+  @apply bg-white text-gray-800 border-gray-300 
+  dark:bg-gray-700 dark:text-gray-100 dark:border-gray-500;
+}
+
+/* ✅ Quitar botón nativo de mostrar contraseña en navegadores */
 input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear,
 input[type="password"]::-webkit-credentials-auto-fill-button,

@@ -2,7 +2,7 @@
  * Componente: DashboardLayout
  * Descripción: Layout principal para páginas de Supervisor y Técnico.
  * Integra useUserProfile para cargar datos desde la API.
- * Ajustado para que el contenido no se superponga al sidebar en desktop.
+ * Ahora incluye soporte para modo oscuro en todo el contenedor y header.
  */
 
 import type { ReactNode } from 'react';
@@ -21,7 +21,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const loading = useUserProfile();
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
       {/* 📌 Sidebar */}
       <Sidebar
         isOpen={isOpen}
@@ -38,17 +38,17 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       >
         {/* Header superior solo en mobile */}
         {isMobile && (
-          <div className="flex items-center justify-between bg-white shadow px-4 py-3">
-            <h1 className="text-xl font-bold text-gray-700">
+          <div className="flex items-center justify-between bg-white dark:bg-gray-800 shadow px-4 py-3">
+            <h1 className="text-xl font-bold text-gray-700 dark:text-gray-100">
               {usuario?.tipo === 2 ? 'Supervisor' : 'Técnico'} - F-REPORT
             </h1>
             <button
               onClick={toggleSidebar}
-              className="p-2 rounded-md bg-gray-200 hover:bg-gray-300 transition"
+              className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6 text-gray-800"
+                className="h-6 w-6 text-gray-800 dark:text-gray-200"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -59,9 +59,9 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto p-4">
+        <main className="flex-1 overflow-y-auto p-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100">
           {loading ? (
-            <p className="text-gray-500">Cargando datos de usuario...</p>
+            <p className="text-gray-500 dark:text-gray-300">Cargando datos de usuario...</p>
           ) : (
             children
           )}

@@ -7,5 +7,6 @@ export default {
   theme: {
     extend: {},
   },
+  darkMode: 'class', // ✅ Forzar que Tailwind solo use "dark" con la clase en <html>
   plugins: [],
 }
