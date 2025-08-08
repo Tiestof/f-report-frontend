@@ -16,7 +16,8 @@ export default function AuthLayout({ children }: AuthLayoutProps) {
       {/* Contenedor principal centrado */}
       <div className="flex flex-1 justify-center items-center px-3 sm:px-4 lg:px-0">
         <div className="bg-white w-full max-w-xs sm:max-w-md md:max-w-lg lg:max-w-md rounded-xl shadow-lg p-4 sm:p-6 lg:p-8">
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-center mb-6 text-gray-800 tracking-wide">
+          {/* Color fijo para mantener el contraste en el fondo blanco */}
+          <h1 className="text-4xl sm:text-5xl font-extrabold text-center mb-6 tracking-wide" style={{ color: '#000000' }}>
             F-REPORT
           </h1>
           {children}

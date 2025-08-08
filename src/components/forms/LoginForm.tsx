@@ -36,16 +36,10 @@ export default function LoginForm() {
     try {
       setLoading(true);
       const rutLimpio = cleanRUTForAPI(rut);
-
-      console.log('DEBUG LOGIN ENVIADO:', { rutOriginal: rut, rutLimpio, password });
       const data = await login(rutLimpio, password);
-      console.log('DEBUG RESPUESTA API:', data);
 
       if (data?.token) {
         setUser(data.token, data.usuario);
-        console.log('DEBUG TOKEN GUARDADO:', data.token);
-        console.log('DEBUG USUARIO:', data.usuario);
-
         if (data.usuario.tipo === 1) {
           navigate('/dashboard-tecnico');
         } else if (data.usuario.tipo === 2) {
@@ -53,7 +47,6 @@ export default function LoginForm() {
         }
       }
     } catch (error: any) {
-      console.error('DEBUG ERROR LOGIN:', error);
       setErrorMsg(error.message || 'Error al iniciar sesión. Intenta nuevamente.');
     } finally {
       setLoading(false);
@@ -62,6 +55,11 @@ export default function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:gap-4">
+      {/* ✅ Título siempre visible en cualquier modo */}
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-900 text-center">
+        Iniciar Sesión
+      </h2>
+
       <RUTInput value={rut} onChange={(v, valid) => { setRut(v); setRutValid(valid); }} />
       <PasswordInput value={password} onChange={setPassword} minLength={MIN_PASSWORD_LENGTH} />
 

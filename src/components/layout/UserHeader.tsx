@@ -19,7 +19,7 @@ const UserHeader: FC<UserHeaderProps> = ({ user, isOpen }) => {
   const perfil = user?.tipo === 2 ? 'Supervisor' : 'Técnico';
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-gray-800">
+    <div className="flex items-center gap-3 p-3 bg-gray-800 dark:bg-gray-900">
       <div className="flex items-center justify-center bg-blue-600 text-white font-bold rounded-full w-10 h-10">
         {loading ? (
           <Skeleton circle width={40} height={40} baseColor="#4B5563" highlightColor="#9CA3AF" />
@@ -38,9 +38,9 @@ const UserHeader: FC<UserHeaderProps> = ({ user, isOpen }) => {
             </>
           ) : (
             <>
-              <span className="text-sm font-semibold">{`${nombre} ${apellido}`}</span>
+              <span className="text-sm font-semibold text-white">{`${nombre} ${apellido}`}</span>
               <span className="text-xs text-gray-300 truncate">{email}</span>
-              <span className="text-xs text-gray-400 italic">{perfil}</span>
+              <span className="text-xs text-green-400 italic">{perfil}</span>
             </>
           )}
         </div>

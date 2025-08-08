@@ -84,38 +84,42 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
       >
         <UserHeader user={usuario} isOpen={isOpen} />
 
-        <nav className="mt-4">
-          {menuItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            const isHelp = item.label === 'Ayuda';
+<nav className="mt-4">
+  {menuItems.map((item) => {
+    const isActive = location.pathname === item.path;
+    const isHelp = item.label === 'Ayuda';
 
-            return (
-              <div key={item.path} className="relative">
-                <button
-                  onClick={() => handleMenuClick(item.path, isHelp)}
-                  className={`flex items-center gap-3 px-3 py-2 mx-2 rounded-lg transition-colors w-full text-left
-                    ${
-                      isActive
-                        ? 'bg-blue-600 text-white'
-                        : 'hover:bg-gray-700 dark:hover:bg-gray-600 text-gray-200 dark:text-gray-300'
-                    }`}
-                >
-                  <item.icon className="h-6 w-6" />
-                  {isOpen && <span className="text-sm font-medium">{item.label}</span>}
-                  {isHelp && (
-                    <HelpTooltip
-                      option={item.label}
-                      config={helpConfig}
-                      isMobile={isMobile}
-                    />
-                  )}
-                </button>
-              </div>
-            );
-          })}
-        </nav>
-
-        {/* 🔘 Botón Modo Oscuro */}
+    return (
+      <div key={item.path} className="relative">
+        <button
+          onClick={() => handleMenuClick(item.path, isHelp)}
+          className={`flex items-center gap-3 px-3 py-2 mx-2 rounded-lg transition-colors w-full text-left
+            ${
+              isActive
+                ? 'bg-blue-600 text-white'
+                : 'hover:bg-blue-500 dark:hover:bg-blue-500 text-white dark:text-white'
+            }`}
+        >
+          {/* ✅ Forzar íconos siempre blancos */}
+          <item.icon className="h-6 w-6 text-white" />
+          {isOpen && (
+            <span className="text-sm font-medium text-white">
+              {item.label}
+            </span>
+          )}
+          {isHelp && (
+            <HelpTooltip
+              option={item.label}
+              config={helpConfig}
+              isMobile={isMobile}
+            />
+          )}
+        </button>
+      </div>
+    );
+  })}
+</nav>
+        {/* Botón Modo Oscuro */}
         <div className="mt-6 px-3">
           <button
             onClick={handleToggleTheme}
