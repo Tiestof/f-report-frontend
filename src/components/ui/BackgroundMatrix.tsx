@@ -1,5 +1,3 @@
-import React from "react";
-
 /**
  * BackgroundMatrix (versión robusta)
  * - No usa clases de Tailwind dentro del SVG (evita purge).
