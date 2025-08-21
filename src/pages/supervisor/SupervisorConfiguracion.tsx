@@ -1,8 +1,15 @@
 /**
  * Página: SupervisorConfiguracion
  * Descripción: Configuración general de tablas auxiliares del proyecto.
- * Permite seleccionar una tabla, listar, editar, crear y eliminar registros.
- * Incluye toasts, diseño responsive para móvil y soporte para modo oscuro.
+ * Cambios:
+ *  - Se elimina la opción de eliminar registros.
+ *  - Se agrega botón de encendido/apagado por fila para gestionar el campo 'activado'.
+ *  - Se mantiene edición (PUT) y creación (POST).
+ *  - El campo 'activado' no se edita por input, solo por toggle.
+ *  - No se permite editar la clave primaria (primer campo del objeto).
+ *  - Ordena los registros por la clave primaria ascendente (numérico o alfabético).
+ *  - Mantiene soporte RUT (formateo/validación) según tabla con rutField.
+ *  - Incluye toasts, diseño responsive y modo oscuro.
  */
 
 import { useState, useEffect } from 'react';
@@ -13,16 +20,24 @@ import {
   QuestionMarkCircleIcon,
   PencilIcon,
   PlusIcon,
-  TrashIcon,
+  PowerIcon, // 🔌 Toggle activar/desactivar
 } from '@heroicons/react/24/outline';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 import { formatRUTDisplay, cleanRUTForAPI } from '../../utils/rutFormatter';
 import { validateRUT } from '../../utils/rutValidator';
 
-const tablasDisponibles = [
+type TablaDef = {
+  key: string;
+  label: string;
+  endpoint: string;
+  rutField?: string;
+};
+
+const tablasDisponibles: TablaDef[] = [
   { key: 'centrocostos', label: 'Centro de Costo', endpoint: '/centrocostos', rutField: 'id_rut_empresa_cobro' },
   { key: 'clientes', label: 'Cliente', endpoint: '/clientes', rutField: 'rut_cliente' },
+  // Nota: EstadoServicio NO tiene 'activado' en el DDL
   { key: 'estadoservicios', label: 'Estado Servicio', endpoint: '/estadoservicios' },
   { key: 'sistemasoperativos', label: 'Sistema Operativo', endpoint: '/sistemasoperativos' },
   { key: 'tipoevidencias', label: 'Tipo Evidencia', endpoint: '/tipoevidencias' },
@@ -46,16 +61,25 @@ const SupervisorConfiguracion = () => {
   const [tablaSeleccionada, setTablaSeleccionada] = useState<string>('');
   const [registros, setRegistros] = useState<Registro[]>([]);
   const [loading, setLoading] = useState(false);
+
   const [editingId, setEditingId] = useState<any>(null);
   const [editValues, setEditValues] = useState<Registro>({});
   const [originalValues, setOriginalValues] = useState<Registro>({});
+
   const [nuevoRegistro, setNuevoRegistro] = useState<Registro>({});
   const [showHelp, setShowHelp] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+  const tablaActual = tablasDisponibles.find((t) => t.key === tablaSeleccionada);
+
   useEffect(() => {
     if (!tablaSeleccionada) return;
     cargarDatos();
+    // Reset de estados al cambiar de tabla
+    setEditingId(null);
+    setEditValues({});
+    setOriginalValues({});
+    setNuevoRegistro({});
   }, [tablaSeleccionada]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -63,25 +87,45 @@ const SupervisorConfiguracion = () => {
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 10000);
+    }, 6000);
+  };
+
+  // Detecta el nombre de la clave primaria como el primer campo del objeto
+  const getIdField = (reg: Registro) => Object.keys(reg)[0];
+  const getIdValue = (reg: Registro) => reg[getIdField(reg)];
+
+  // Comparador por PK ascendente (numérico si ambos son números, si no, alfabético con numeric)
+  const compareByPrimary = (a: Registro, b: Registro) => {
+    const keyA = getIdField(a);
+    const keyB = getIdField(b);
+    // Si las tablas no son uniformes (no debería), caemos al nombre del primer key de 'a'
+    const k = keyA || keyB;
+    const av = a[k];
+    const bv = b[k];
+    const na = Number(av);
+    const nb = Number(bv);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return String(av).localeCompare(String(bv), 'es', { numeric: true, sensitivity: 'base' });
   };
 
   const cargarDatos = async () => {
-    const tabla = tablasDisponibles.find((t) => t.key === tablaSeleccionada);
-    if (!tabla) return;
+    if (!tablaActual) return;
     try {
       setLoading(true);
-      const res = await api.get(tabla.endpoint);
-      setRegistros(res.data);
+      const res = await api.get(tablaActual.endpoint);
+      const lista = Array.isArray(res.data) ? res.data : [];
+      const ordenada = [...lista].sort(compareByPrimary);
+      setRegistros(ordenada);
     } catch (err) {
       console.error('Error al cargar datos:', err);
+      showToast('Error al cargar datos', 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const handleEdit = (reg: Registro) => {
-    setEditingId(Object.values(reg)[0]);
+    setEditingId(getIdValue(reg));
     setEditValues(reg);
     setOriginalValues(reg);
   };
@@ -93,17 +137,25 @@ const SupervisorConfiguracion = () => {
   const isModified = (field: string) => editValues[field] !== originalValues[field];
 
   const handleSaveEdit = async () => {
-    const tabla = tablasDisponibles.find((t) => t.key === tablaSeleccionada);
-    if (!tabla) return;
+    if (!tablaActual) return;
     try {
-      let payload = { ...editValues };
-      if (tabla.rutField && payload[tabla.rutField]) {
-        payload[tabla.rutField] = cleanRUTForAPI(payload[tabla.rutField]);
+      const idField = getIdField(editValues);
+      const idValue = editValues[idField];
+
+      // Construir payload evitando enviar clave primaria y 'activado' (se maneja por toggle)
+      const payload: Registro = { ...editValues };
+      delete payload[idField];
+      if ('activado' in payload) delete payload['activado'];
+
+      // Normalizar RUT si corresponde
+      if (tablaActual.rutField && payload[tablaActual.rutField]) {
+        payload[tablaActual.rutField] = cleanRUTForAPI(payload[tablaActual.rutField]);
       }
-      await api.put(`${tabla.endpoint}/${Object.values(editValues)[0]}`, payload);
+
+      await api.put(`${tablaActual.endpoint}/${idValue}`, payload);
       setEditingId(null);
       setEditValues({});
-      cargarDatos();
+      await cargarDatos(); // vuelve a ordenar
       showToast('Registro actualizado correctamente', 'success');
     } catch (err) {
       console.error('Error al actualizar registro:', err);
@@ -111,46 +163,58 @@ const SupervisorConfiguracion = () => {
     }
   };
 
-  const handleDelete = async (id: any) => {
-    const tabla = tablasDisponibles.find((t) => t.key === tablaSeleccionada);
-    if (!tabla) return;
-    if (!confirm('¿Seguro que deseas eliminar este registro?')) return;
+  // 🔌 Activar/Desactivar (toggle) usando PUT con { activado: 0|1 }
+  const handleToggleActivado = async (reg: Registro) => {
+    if (!tablaActual) return;
+    if (!('activado' in reg)) return; // Si la tabla no tiene activado (ej: EstadoServicio), no hace nada
     try {
-      await api.delete(`${tabla.endpoint}/${id}`);
-      cargarDatos();
-      showToast('Registro eliminado correctamente', 'success');
+      const idField = getIdField(reg);
+      const idValue = reg[idField];
+      const nuevoEstado = reg.activado ? 0 : 1;
+      await api.put(`${tablaActual.endpoint}/${idValue}`, { activado: nuevoEstado });
+      await cargarDatos(); // vuelve a ordenar
+      showToast(`Registro ${nuevoEstado ? 'activado' : 'desactivado'} correctamente`, 'success');
     } catch (err) {
-      console.error('Error al eliminar:', err);
-      showToast('Error al eliminar registro', 'error');
+      console.error('Error al cambiar estado activado:', err);
+      showToast('Error al cambiar estado del registro', 'error');
     }
   };
 
   const handleNewChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    const tabla = tablasDisponibles.find((t) => t.key === tablaSeleccionada);
     let val = value;
-    if (tabla?.rutField === name) {
+    if (tablaActual?.rutField === name) {
       val = formatRUTDisplay(value);
     }
-    setNuevoRegistro({ ...nuevoRegistro, [name]: val });
+    setNuevoRegistro((prev) => ({ ...prev, [name]: val }));
   };
 
   const handleCreate = async () => {
-    const tabla = tablasDisponibles.find((t) => t.key === tablaSeleccionada);
-    if (!tabla) return;
+    if (!tablaActual) return;
     try {
-      let payload = { ...nuevoRegistro };
-      if (tabla.rutField && payload[tabla.rutField]) {
-        const rutValido = validateRUT(cleanRUTForAPI(payload[tabla.rutField]));
-        if (!rutValido) {
+      const payload: Registro = { ...nuevoRegistro };
+
+      // Validación/normalización RUT
+      if (tablaActual.rutField && payload[tablaActual.rutField]) {
+        const limpio = cleanRUTForAPI(payload[tablaActual.rutField]);
+        if (!validateRUT(limpio)) {
           alert('El RUT ingresado no es válido.');
           return;
         }
-        payload[tabla.rutField] = cleanRUTForAPI(payload[tabla.rutField]);
+        payload[tablaActual.rutField] = limpio;
       }
-      await api.post(tabla.endpoint, payload);
+
+      // Si la tabla soporta 'activado' y no vino en el form, lo dejamos en 1 por defecto.
+      if (!('activado' in payload)) {
+        const primera = registros[0];
+        if (primera && 'activado' in primera) {
+          payload['activado'] = 1;
+        }
+      }
+
+      await api.post(tablaActual.endpoint, payload);
       setNuevoRegistro({});
-      cargarDatos();
+      await cargarDatos(); // vuelve a ordenar
       showToast('Registro creado correctamente', 'success');
     } catch (err) {
       console.error('Error al crear registro:', err);
@@ -158,7 +222,17 @@ const SupervisorConfiguracion = () => {
     }
   };
 
-  const tablaActual = tablasDisponibles.find((t) => t.key === tablaSeleccionada);
+  // Helpers UI: lista de campos editables (evita clave primaria y 'activado')
+  const camposEditables = (reg: Registro) =>
+    Object.keys(reg).filter((f) => f !== getIdField(reg) && f !== 'activado');
+
+  // Campos para el formulario "Nuevo"
+  // Importante: incluimos la PK (RUT/ID) para tablas donde no es autoincrement (ej: Cliente/CentroCosto)
+  // y ocultamos 'activado' (se define a 1 por defecto si aplica).
+  const camposNuevo = () => {
+    const base = registros[0] || { descripcion: '' };
+    return Object.keys(base).filter((f) => f !== 'activado');
+  };
 
   return (
     <DashboardLayout>
@@ -167,8 +241,9 @@ const SupervisorConfiguracion = () => {
           Configuración de Tablas Auxiliares
         </h1>
       </div>
+
       <p className="text-gray-600 dark:text-gray-300 mb-4 sm:mb-6 text-center sm:text-left">
-        Alta, baja y modificación de tablas auxiliares.
+        Crear y editar tablas auxiliares. Para deshabilitar un registro, usa el botón de encendido/apagado.
       </p>
 
       {!tablaSeleccionada ? (
@@ -179,7 +254,7 @@ const SupervisorConfiguracion = () => {
           <select
             value={tablaSeleccionada}
             onChange={(e) => setTablaSeleccionada(e.target.value)}
-            className="border p-2 rounded w-full"
+            className="border p-2 rounded w-full dark:bg-gray-700 dark:text-gray-100 dark:border-gray-500"
           >
             <option value="">-- Selecciona --</option>
             {tablasDisponibles.map((t) => (
@@ -205,36 +280,71 @@ const SupervisorConfiguracion = () => {
           ) : (
             <div className="space-y-2">
               {registros.map((reg) => {
-                const id = Object.values(reg)[0];
+                const idField = getIdField(reg);
+                const id = reg[idField];
+                const tieneActivado = 'activado' in reg;
+                const activo = !!reg.activado;
+
                 return (
                   <div
                     key={id}
                     className="flex flex-col sm:flex-row sm:gap-2 sm:items-center border p-2 rounded bg-gray-50 dark:bg-gray-800 dark:border-gray-600"
                   >
-                    {Object.keys(reg).map((field) => (
-                      <input
-                        key={field}
-                        name={field}
-                        value={
-                          editingId === id ? editValues[field] || '' : reg[field] || ''
-                        }
-                        disabled={false}
-                        onChange={(e) => handleEditChange(e, field)}
-                        className="border p-1 rounded flex-1 mb-2 sm:mb-0 dark:bg-gray-700 dark:border-gray-500 dark:text-gray-100"
-                      />
-                    ))}
-                    <div className="flex gap-2 justify-end">
+                    {/* Badge ID (solo lectura) */}
+                    <div className="text-xs sm:text-sm font-mono text-gray-600 dark:text-gray-300 mb-2 sm:mb-0 sm:w-48">
+                      <span className="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded">
+                        {idField}: {String(id)}
+                      </span>
+                    </div>
+
+                    {/* Inputs editables (evita id y activado) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
+                      {camposEditables(reg).map((field) => (
+                        <input
+                          key={field}
+                          name={field}
+                          placeholder={field}
+                          value={
+                            editingId === id ? String(editValues[field] ?? '') : String(reg[field] ?? '')
+                          }
+                          disabled={editingId !== id}
+                          onChange={(e) => handleEditChange(e, field)}
+                          className={`border p-1 rounded dark:bg-gray-700 dark:border-gray-500 dark:text-gray-100 ${
+                            editingId !== id ? 'bg-gray-100 dark:bg-gray-700/60' : ''
+                          }`}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Controles a la derecha */}
+                    <div className="flex gap-2 justify-end items-center mt-2 sm:mt-0">
+                      {/* Toggle Activado (si existe el campo) */}
+                      {tieneActivado && (
+                        <button
+                          onClick={() => handleToggleActivado(reg)}
+                          title={activo ? 'Desactivar' : 'Activar'}
+                          className={`p-2 rounded flex items-center gap-1 ${
+                            activo
+                              ? 'bg-green-500 hover:bg-green-600 text-white'
+                              : 'bg-red-500 hover:bg-red-600 text-white'
+                          }`}
+                        >
+                          <PowerIcon className="h-4 w-4" />
+                          <span className="text-xs">{activo ? 'Activo' : 'Inactivo'}</span>
+                        </button>
+                      )}
+
+                      {/* Botón Guardar / Editar */}
                       {editingId === id ? (
                         <button
                           onClick={handleSaveEdit}
-                          disabled={
-                            !Object.keys(editValues).some((f) => isModified(f))
-                          }
+                          disabled={!Object.keys(editValues).some((f) => isModified(f) && f !== 'activado')}
                           className={`p-2 rounded ${
-                            Object.keys(editValues).some((f) => isModified(f))
-                              ? 'bg-green-500 text-white hover:bg-green-600'
+                            Object.keys(editValues).some((f) => isModified(f) && f !== 'activado')
+                              ? 'bg-blue-600 text-white hover:bg-blue-700'
                               : 'bg-gray-300 dark:bg-gray-600 text-gray-500'
                           }`}
+                          title="Guardar cambios"
                         >
                           <FaSave className="h-4 w-4" />
                         </button>
@@ -242,16 +352,11 @@ const SupervisorConfiguracion = () => {
                         <button
                           onClick={() => handleEdit(reg)}
                           className="p-2 rounded bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500"
+                          title="Editar"
                         >
                           <PencilIcon className="h-4 w-4 text-blue-600" />
                         </button>
                       )}
-                      <button
-                        onClick={() => handleDelete(id)}
-                        className="p-2 rounded bg-red-500 hover:bg-red-600 text-white"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                      </button>
                     </div>
                   </div>
                 );
@@ -259,20 +364,23 @@ const SupervisorConfiguracion = () => {
 
               {/* ➕ Nuevo registro */}
               <div className="flex flex-col sm:flex-row sm:gap-2 sm:items-center border-t dark:border-gray-600 pt-3 mt-3">
-                {Object.keys(registros[0] || { descripcion: '' }).map((field) => (
-                  <input
-                    key={field}
-                    name={field}
-                    placeholder={field}
-                    value={nuevoRegistro[field] || ''}
-                    onChange={handleNewChange}
-                    className="border p-1 rounded flex-1 mb-2 sm:mb-0 dark:bg-gray-700 dark:border-gray-500 dark:text-gray-100"
-                  />
-                ))}
-                <div className="flex justify-end">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
+                  {camposNuevo().map((field) => (
+                    <input
+                      key={field}
+                      name={field}
+                      placeholder={field}
+                      value={nuevoRegistro[field] || ''}
+                      onChange={handleNewChange}
+                      className="border p-1 rounded flex-1 dark:bg-gray-700 dark:border-gray-500 dark:text-gray-100"
+                    />
+                  ))}
+                </div>
+                <div className="flex justify-end mt-2 sm:mt-0">
                   <button
                     onClick={handleCreate}
                     className="p-2 rounded bg-green-500 hover:bg-green-600 text-white"
+                    title="Crear registro"
                   >
                     <PlusIcon className="h-4 w-4" />
                   </button>
@@ -291,7 +399,7 @@ const SupervisorConfiguracion = () => {
               }}
               className="bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-100 px-3 py-2 rounded"
             >
-              Cancelar
+              Cerrar
             </button>
           </div>
         </div>
@@ -310,6 +418,30 @@ const SupervisorConfiguracion = () => {
           </div>
         ))}
       </div>
+
+      {/* (Opcional) Modal de ayuda */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 max-w-lg w-full">
+            <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-2">Ayuda</h3>
+            <ul className="list-disc pl-6 text-sm text-gray-700 dark:text-gray-200 space-y-1">
+              <li>Use el botón <b>Editar</b> para modificar campos del registro.</li>
+              <li>Use el botón <b>Encendido/Apagado</b> para activar o desactivar un registro (si la tabla soporta el campo <code>activado</code>).</li>
+              <li>La clave primaria y el campo <code>activado</code> no se editan por input.</li>
+              <li>Al crear registros, el sistema establece <code>activado=1</code> por defecto cuando aplica.</li>
+              <li>Los registros se muestran ordenados por su clave primaria de forma ascendente.</li>
+            </ul>
+            <div className="text-right mt-4">
+              <button
+                onClick={() => setShowHelp(false)}
+                className="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 };
