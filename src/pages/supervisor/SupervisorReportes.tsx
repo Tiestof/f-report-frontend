@@ -668,7 +668,7 @@ const SupervisorReportes = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
             <div>
-              <FieldLabel>RUT usuario (técnico)</FieldLabel>
+              <FieldLabel>Responsable (técnico)</FieldLabel>
               <Input placeholder="Ej: 11111111K" value={fRutUsuario} onChange={(e) => setFRutUsuario(e.target.value.trim())} />
             </div>
             <div>
@@ -732,7 +732,7 @@ const SupervisorReportes = () => {
                   <th className="px-3 py-2">Hardware</th>
                   <th className="px-3 py-2">SO</th>
                   <th className="px-3 py-2">Estado</th>
-                  <th className="px-3 py-2">RUT usuario</th>
+                  <th className="px-3 py-2">Responsable </th>
                   <th className="px-3 py-2 text-right">Acciones</th>
                 </tr>
               </thead>
