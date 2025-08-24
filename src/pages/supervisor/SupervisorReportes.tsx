@@ -127,7 +127,7 @@ const dateOnly = (value?: string | null): string => {
 
 const defaultForm = (): FormValues => ({
   fecha_reporte: todayISO(),
-  hora_inicio:'', //timeHM(),
+  hora_inicio:timeHM(),
   hora_fin: '',
   comentario: '',
   rut_asignado: '',
