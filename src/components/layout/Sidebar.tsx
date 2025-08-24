@@ -1,8 +1,10 @@
 /**
  * Componente: Sidebar
- * Descripción: Menú lateral responsive para Supervisor y Técnico.
- * Incluye botón de Modo Oscuro con iconos Sol/Luna.
- * Ahora con logs de depuración para verificar cambios de tema.
+ * Descripción:
+ *  - Menú lateral responsive para Supervisor y Técnico.
+ *  - Corrige: (1) Quitar tooltip hover en "Ayuda" y forzar ícono correcto.
+ *             (2) Evitar doble margen en desktop haciendo el aside 'fixed'.
+ *  - Incluye botón de Modo Oscuro (Sol/Luna) y modal de ayuda.
  */
 
 import type { FC } from 'react';
@@ -12,9 +14,9 @@ import UserHeader from './UserHeader';
 import { menuSupervisor, menuTecnico } from '../../utils/menuConfig';
 import { helpConfig } from '../../utils/helpConfig';
 import useAuthStore from '../../store/authStore';
-import HelpTooltip from './HelpTooltip';
+// ⚠️ Se elimina HelpTooltip en el botón para no mostrar tooltip hover
 import { useThemeStore } from '../../store/themeStore';
-import { SunIcon, MoonIcon } from '@heroicons/react/24/outline';
+import { SunIcon, MoonIcon, QuestionMarkCircleIcon } from '@heroicons/react/24/outline';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -35,7 +37,7 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
 
   const { darkMode, toggleTheme } = useThemeStore();
 
-  // ✅ Debug para ver cuando darkMode cambia
+  // Debug de tema
   useEffect(() => {
     console.log('🌙 Estado actual darkMode:', darkMode);
     console.log('📌 Clase dark aplicada en <html>?', document.documentElement.classList.contains('dark'));
@@ -43,7 +45,7 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
 
   const handleMenuClick = (path: string, isHelp = false) => {
     if (isHelp) {
-      setShowHelp(true);
+      setShowHelp(true); // Abrir modal de ayuda (sin tooltip hover)
       return;
     }
 
@@ -66,59 +68,55 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
       {isMobile && isOpen && (
         <div
           onClick={closeSidebar}
-          className="fixed inset-0 bg-black bg-opacity-40 z-30"
+          className="fixed inset-0 bg-black/40 z-30"
         />
       )}
 
+      {/* 🔧 Aside fijo también en desktop para evitar doble margen */}
       <aside
         className={`bg-gray-900 dark:bg-gray-800 text-white h-full transition-transform duration-300 z-40
           ${
             isMobile
-              ? isOpen
-                ? 'fixed translate-x-0 w-64'
-                : 'fixed -translate-x-full w-64'
-              : isOpen
-                ? 'relative md:w-64'
-                : 'relative md:w-16'
+              ? (isOpen ? 'fixed translate-x-0 w-64' : 'fixed -translate-x-full w-64')
+              : (isOpen ? 'fixed md:translate-x-0 md:w-64' : 'fixed md:translate-x-0 md:w-16')
           }`}
+        style={{ top: 0, bottom: 0, left: 0 }}
       >
         <UserHeader user={usuario} isOpen={isOpen} />
 
-<nav className="mt-4">
-  {menuItems.map((item) => {
-    const isActive = location.pathname === item.path;
-    const isHelp = item.label === 'Ayuda';
+        <nav className="mt-4">
+          {menuItems.map((item) => {
+            const isActive = location.pathname === item.path;
+            const isHelp = item.label === 'Ayuda';
 
-    return (
-      <div key={item.path} className="relative">
-        <button
-          onClick={() => handleMenuClick(item.path, isHelp)}
-          className={`flex items-center gap-3 px-3 py-2 mx-2 rounded-lg transition-colors w-full text-left
-            ${
-              isActive
-                ? 'bg-blue-600 text-white'
-                : 'hover:bg-blue-500 dark:hover:bg-blue-500 text-white dark:text-white'
-            }`}
-        >
-          {/* ✅ Forzar íconos siempre blancos */}
-          <item.icon className="h-6 w-6 text-white" />
-          {isOpen && (
-            <span className="text-sm font-medium text-white">
-              {item.label}
-            </span>
-          )}
-          {isHelp && (
-            <HelpTooltip
-              option={item.label}
-              config={helpConfig}
-              isMobile={isMobile}
-            />
-          )}
-        </button>
-      </div>
-    );
-  })}
-</nav>
+            // ✅ Forzar ícono correcto para Ayuda cuando está colapsado/expandido
+            const IconComp = isHelp ? QuestionMarkCircleIcon : item.icon;
+
+            return (
+              <div key={item.path} className="relative">
+                <button
+                  onClick={() => handleMenuClick(item.path, isHelp)}
+                  className={`flex items-center gap-3 px-3 py-2 mx-2 rounded-lg transition-colors w-full text-left
+                    ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : 'hover:bg-blue-500 dark:hover:bg-blue-500 text-white dark:text-white'
+                    }`}
+                >
+                  <IconComp className="h-6 w-6 text-white" />
+                  {isOpen && (
+                    <span className="text-sm font-medium text-white">
+                      {item.label}
+                    </span>
+                  )}
+
+                  {/* ❌ Se elimina HelpTooltip dentro del botón para no mostrar tooltip hover */}
+                </button>
+              </div>
+            );
+          })}
+        </nav>
+
         {/* Botón Modo Oscuro */}
         <div className="mt-6 px-3">
           <button
@@ -152,9 +150,9 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
         )}
       </aside>
 
-      {/* ✅ Modal de ayuda con iconos */}
+      {/* Modal de ayuda (única forma de ver ayuda ahora) */}
       {showHelp && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-900 rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto text-gray-800 dark:text-gray-100">
             <h3 className="text-xl font-bold mb-4">{helpConfig.Ayuda.title}</h3>
             <p className="text-gray-700 dark:text-gray-300 mb-4">{helpConfig.Ayuda.description}</p>
@@ -163,7 +161,7 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
               {menuItems.map((item) => {
                 const help = helpConfig[item.label as keyof typeof helpConfig];
                 if (!help) return null;
-                const Icon = item.icon;
+                const Icon = item.label === 'Ayuda' ? QuestionMarkCircleIcon : item.icon;
 
                 return (
                   <div key={item.label} className="flex items-start gap-3 border-b pb-2 border-gray-200 dark:border-gray-700">
