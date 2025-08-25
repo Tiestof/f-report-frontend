@@ -9,7 +9,7 @@ const SupervisorInformes = () => {
   return (
     <DashboardLayout>
       <h1 className="text-2xl font-extrabold text-gray-800">Informes Supervisor</h1>
-      <p className="mt-2 text-gray-600">Generación y análisis de informes.</p>
+      <p className="mt-2 text-gray-600">2 Generación y análisis de informes.</p>
     </DashboardLayout>
   );
 };
