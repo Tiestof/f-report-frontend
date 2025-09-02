@@ -3,15 +3,14 @@
  * Archivo: src/pages/supervisor/SupervisorReportes.tsx
  * Página: SupervisorReportes
  * Descripción:
- *  - Carga Google Maps **una sola vez** con libraries=['places'].
- *  - AddressAutocomplete NO llama useJsApiLoader.
- *  - MapPreview NO llama useJsApiLoader y recibe lat/lng numéricos.
- *  - Filtro de fecha corrige comparación normalizando ISO -> YYYY-MM-DD.
- *  - Listado muestra fecha sin hora (YYYY-MM-DD).
- *  - Tras crear/editar: limpia formulario. Eliminar: pide confirmación. Editar: auto-scroll.
- *  - Listado: más nuevo→antiguo + filtros.
- *  - Mapeo RUT creador → rut_responsable (DB) y técnico asignado → rut_usuario (DB).
- *  - FIX foco: Sector/Edificio/Piso/Número/Comentarios ahora son NO controlados con refs.
+ *  - FIX foco: Sector/Edificio/Piso/Número/Comentarios son NO controlados (refs) para evitar blur por re-render.
+ *  - Validaciones de largo máximo según DB:
+ *      numero VARCHAR(10), sector VARCHAR(100), edificio VARCHAR(100), piso VARCHAR(20)
+ *      comentario: límite frontend 500 con contador en vivo.
+ *  - Carga Google Maps una sola vez (libraries=['places']).
+ *  - Normalización de fecha a YYYY-MM-DD para filtros y listado.
+ *  - Acciones: crear/editar/eliminar con feedback y limpieza del form.
+ *  - Mapeo: RUT creador → rut_responsable; técnico asignado → rut_usuario.
  * ============================================================
  */
 
@@ -28,11 +27,9 @@ import {
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
 
-// Google Maps loader ÚNICO
 import { useJsApiLoader } from '@react-google-maps/api';
 import type { Libraries } from '@react-google-maps/api';
 
-// Componentes de mapas (no cargan script)
 import AddressAutocomplete from '../../components/maps/AddressAutocomplete';
 import MapPreview from '../../components/maps/MapPreview';
 
@@ -72,7 +69,6 @@ type ReporteRow = {
   latitud: number | null;
   longitud: number | null;
   id_rut_empresa_cobro: string | null;
-  // labels si vienen
   nombre_usuario?: string | null;
   nombre_cliente?: string | null;
   tipo_servicio?: string | null;
@@ -85,9 +81,8 @@ type FormValues = {
   fecha_reporte: string;
   hora_inicio: string;
   hora_fin: string;
-  // comentario / numero / sector / edificio / piso se manejarán por refs (no controlados)
   comentario: string;
-  rut_asignado: string; // técnico asignado → DB: rut_usuario
+  rut_asignado: string;
   rut_cliente: string;
   id_rut_empresa_cobro: string;
   id_tipo_servicio: number | '';
@@ -99,8 +94,17 @@ type FormValues = {
   sector: string;
   edificio: string;
   piso: string;
-  latitud?: number | '';   // puede ser number o '' (vacío)
+  latitud?: number | '';
   longitud?: number | '';
+};
+
+// ===== Límites de campos (según DB y regla UX para comentario) =====
+const LIMITS = {
+  numero: 10,      // VARCHAR(10)
+  sector: 100,     // VARCHAR(100)
+  edificio: 100,   // VARCHAR(100)
+  piso: 20,        // VARCHAR(20)
+  comentario: 500, // UX: tope frontend con contador
 };
 
 // ===== Utilidades =====
@@ -118,7 +122,7 @@ const timeHM = () => {
   return `${h}:${m}`;
 };
 
-/** Normaliza a 'YYYY-MM-DD' en zona local (sirve para ISO con 'T' o fechas simples) */
+/** Normaliza a 'YYYY-MM-DD' */
 const dateOnly = (value?: string | null): string => {
   if (!value) return '';
   if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
@@ -163,32 +167,40 @@ const SupervisorReportes = () => {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  // Refs para inputs NO controlados (evitan pérdida de foco)
+  // Refs (inputs no controlados)
   const numeroRef = useRef<HTMLInputElement>(null);
   const sectorRef = useRef<HTMLInputElement>(null);
   const edificioRef = useRef<HTMLInputElement>(null);
   const pisoRef = useRef<HTMLInputElement>(null);
   const comentarioRef = useRef<HTMLTextAreaElement>(null);
 
-  // Al entrar a editar, refrescamos los valores visibles de los inputs no controlados
+  // Contador de comentarios (solo para UI)
+  const [commentCount, setCommentCount] = useState(0);
+
+  // Al entrar/salir de edición, refrescar valores visibles y el contador
   useEffect(() => {
     if (editingId !== null) {
       if (numeroRef.current) numeroRef.current.value = form.numero || '';
       if (sectorRef.current) sectorRef.current.value = form.sector || '';
       if (edificioRef.current) edificioRef.current.value = form.edificio || '';
       if (pisoRef.current) pisoRef.current.value = form.piso || '';
-      if (comentarioRef.current) comentarioRef.current.value = form.comentario || '';
+      if (comentarioRef.current) {
+        comentarioRef.current.value = form.comentario || '';
+        setCommentCount(comentarioRef.current.value.length);
+      }
     } else {
-      // nuevo
       if (numeroRef.current) numeroRef.current.value = '';
       if (sectorRef.current) sectorRef.current.value = '';
       if (edificioRef.current) edificioRef.current.value = '';
       if (pisoRef.current) pisoRef.current.value = '';
-      if (comentarioRef.current) comentarioRef.current.value = '';
+      if (comentarioRef.current) {
+        comentarioRef.current.value = '';
+        setCommentCount(0);
+      }
     }
-  }, [editingId]); // solo cuando cambia el modo edición
+  }, [editingId]); // ⚠️ solo cuando cambia el modo
 
-  // Loader único
+  // Loader único de Maps
   const { isLoaded: isMapsLoaded, loadError: mapsLoadError } = useJsApiLoader({
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string,
     libraries: MAP_LIBS,
@@ -289,7 +301,7 @@ const SupervisorReportes = () => {
     });
   }, [reportes, fRutUsuario, fFecha, fTipoServicio, fTipoHardware, fSO, fEstado, fCliente]);
 
-  // ===== Handlers formulario =====
+  // ===== Handlers formulario (para campos controlados) =====
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
@@ -306,12 +318,12 @@ const SupervisorReportes = () => {
   const resetForm = () => {
     setForm(defaultForm());
     setEditingId(null);
-    // limpiar inputs no controlados visualmente
     if (numeroRef.current) numeroRef.current.value = '';
     if (sectorRef.current) sectorRef.current.value = '';
     if (edificioRef.current) edificioRef.current.value = '';
     if (pisoRef.current) pisoRef.current.value = '';
     if (comentarioRef.current) comentarioRef.current.value = '';
+    setCommentCount(0);
   };
 
   const scrollToForm = () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -325,12 +337,29 @@ const SupervisorReportes = () => {
       return alert('Debes seleccionar Tipo de Servicio y Estado del Servicio.');
     }
 
-    // Leemos SIEMPRE los 5 campos desde sus refs (no controlados)
-    const numeroVal = numeroRef.current?.value ?? '';
-    const sectorVal = sectorRef.current?.value ?? '';
-    const edificioVal = edificioRef.current?.value ?? '';
-    const pisoVal = pisoRef.current?.value ?? '';
-    const comentarioVal = comentarioRef.current?.value ?? '';
+    // Leer SIEMPRE desde refs (no controlados) + validar límites
+    const numeroVal = (numeroRef.current?.value ?? '').slice(0, LIMITS.numero);
+    const sectorVal = (sectorRef.current?.value ?? '').slice(0, LIMITS.sector);
+    const edificioVal = (edificioRef.current?.value ?? '').slice(0, LIMITS.edificio);
+    const pisoVal = (pisoRef.current?.value ?? '').slice(0, LIMITS.piso);
+    const comentarioVal = (comentarioRef.current?.value ?? '').slice(0, LIMITS.comentario);
+
+    // Validación explícita (defensa en profundidad)
+    if ((numeroRef.current?.value || '').length > LIMITS.numero) {
+      return alert(`"Número" supera ${LIMITS.numero} caracteres.`);
+    }
+    if ((sectorRef.current?.value || '').length > LIMITS.sector) {
+      return alert(`"Sector" supera ${LIMITS.sector} caracteres.`);
+    }
+    if ((edificioRef.current?.value || '').length > LIMITS.edificio) {
+      return alert(`"Edificio" supera ${LIMITS.edificio} caracteres.`);
+    }
+    if ((pisoRef.current?.value || '').length > LIMITS.piso) {
+      return alert(`"Piso" supera ${LIMITS.piso} caracteres.`);
+    }
+    if ((comentarioRef.current?.value || '').length > LIMITS.comentario) {
+      return alert(`"Comentarios" supera ${LIMITS.comentario} caracteres.`);
+    }
 
     const payload = {
       fecha_reporte: form.fecha_reporte,
@@ -394,13 +423,16 @@ const SupervisorReportes = () => {
       longitud: row.longitud ?? '',
     });
 
-    // Ajustamos valores visibles de los NO controlados (sin perder foco)
+    // Ajustar valores visibles y contador sin perder foco
     setTimeout(() => {
       if (numeroRef.current) numeroRef.current.value = row.numero || '';
       if (sectorRef.current) sectorRef.current.value = row.sector || '';
       if (edificioRef.current) edificioRef.current.value = row.edificio || '';
       if (pisoRef.current) pisoRef.current.value = row.piso || '';
-      if (comentarioRef.current) comentarioRef.current.value = row.comentario || '';
+      if (comentarioRef.current) {
+        comentarioRef.current.value = row.comentario || '';
+        setCommentCount(comentarioRef.current.value.length);
+      }
     }, 0);
 
     scrollToForm();
@@ -544,66 +576,30 @@ const SupervisorReportes = () => {
               </div>
             </div>
 
-            {/* Servicio */}
+            {/* Comentarios (NO controlado) */}
             <div>
-              <SectionTitle>🧩 Datos de servicio</SectionTitle>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div>
-                  <FieldLabel>Tipo de servicio*</FieldLabel>
-                  <Select name="id_tipo_servicio" value={form.id_tipo_servicio} onChange={handleChange} required>
-                    <option value="">-- Selecciona --</option>
-                    {tiposServicio.map((x) => (
-                      <option key={x.id_tipo_servicio} value={x.id_tipo_servicio}>{x.descripcion}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <FieldLabel>Tipo de hardware</FieldLabel>
-                  <Select name="id_tipo_hardware" value={form.id_tipo_hardware} onChange={handleChange}>
-                    <option value="">-- Selecciona --</option>
-                    {tiposHardware.map((x) => (
-                      <option key={x.id_tipo_hardware} value={x.id_tipo_hardware}>{x.descripcion}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <FieldLabel>Sistema operativo</FieldLabel>
-                  <Select name="id_sistema_operativo" value={form.id_sistema_operativo} onChange={handleChange}>
-                    <option value="">-- Selecciona --</option>
-                    {sistemas.map((s) => (
-                      <option key={s.id_sistema_operativo} value={s.id_sistema_operativo}>{s.nombre_sistema}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <FieldLabel>Estado del servicio*</FieldLabel>
-                  <Select name="id_estado_servicio" value={form.id_estado_servicio} onChange={handleChange} required>
-                    <option value="">-- Selecciona --</option>
-                    {estados.map((e) => (
-                      <option key={e.id_estado_servicio} value={e.id_estado_servicio}>{e.descripcion}</option>
-                    ))}
-                  </Select>
+              <SectionTitle>📝 Comentarios</SectionTitle>
+              <div className="space-y-1">
+                <textarea
+                  ref={comentarioRef}
+                  key={`comentario-${editingId ?? 'new'}`}
+                  name="comentario"
+                  defaultValue={form.comentario}
+                  rows={3}
+                  placeholder="Observaciones..."
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={LIMITS.comentario}
+                  onInput={(e) => setCommentCount((e.target as HTMLTextAreaElement).value.length)}
+                  className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
+                />
+                <div className="text-xs text-gray-500">
+                  {LIMITS.comentario - commentCount} caracteres disponibles
                 </div>
               </div>
             </div>
 
-            {/* Comentarios (NO controlado) */}
-            <div>
-              <SectionTitle>📝 Comentarios</SectionTitle>
-              <textarea
-                ref={comentarioRef}
-                key={`comentario-${editingId ?? 'new'}`}
-                name="comentario"
-                defaultValue={form.comentario}
-                rows={3}
-                placeholder="Observaciones..."
-                autoComplete="off"
-                spellCheck={false}
-                className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
-              />
-            </div>
-
-            {/* Ubicación (al final) */}
+            {/* Ubicación */}
             <div>
               <SectionTitle>📍 Datos de ubicación</SectionTitle>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
@@ -617,12 +613,10 @@ const SupervisorReportes = () => {
                         setForm((prev) => ({
                           ...prev,
                           direccion: d.address || prev.direccion,
-                          // si el autocompletado trae número, lo volcamos al ref visualmente
-                          ...(d.numero ? {} : {}),
                           latitud: d.lat ?? '',
                           longitud: d.lng ?? '',
                         }));
-                        if (d.numero && numeroRef.current) numeroRef.current.value = d.numero;
+                        if (d.numero && numeroRef.current) numeroRef.current.value = d.numero.slice(0, LIMITS.numero);
                       }}
                       componentRestrictions={{ country: 'cl' }}
                     />
@@ -642,6 +636,7 @@ const SupervisorReportes = () => {
                       placeholder="N°"
                       autoComplete="off"
                       spellCheck={false}
+                      maxLength={LIMITS.numero}
                       className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
                     />
                   </div>
@@ -657,6 +652,7 @@ const SupervisorReportes = () => {
                         defaultValue={form.sector}
                         autoComplete="off"
                         spellCheck={false}
+                        maxLength={LIMITS.sector}
                         className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
                       />
                     </div>
@@ -670,6 +666,7 @@ const SupervisorReportes = () => {
                         defaultValue={form.edificio}
                         autoComplete="off"
                         spellCheck={false}
+                        maxLength={LIMITS.edificio}
                         className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
                       />
                     </div>
@@ -683,6 +680,7 @@ const SupervisorReportes = () => {
                         defaultValue={form.piso}
                         autoComplete="off"
                         spellCheck={false}
+                        maxLength={LIMITS.piso}
                         className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
                       />
                     </div>
@@ -739,10 +737,10 @@ const SupervisorReportes = () => {
             <div className="flex flex-col sm:flex-row gap-2 justify-end pt-2">
               {editingId && (
                 <button
-                    type="button"
-                    onClick={resetForm}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-gray-300 hover:bg-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 transition"
-                    title="Cancelar edición"
+                  type="button"
+                  onClick={resetForm}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-gray-300 hover:bg-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 transition"
+                  title="Cancelar edición"
                 >
                   <XMarkIcon className="h-5 w-5" />
                   Cancelar
