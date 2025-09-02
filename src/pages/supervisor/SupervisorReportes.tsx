@@ -1,13 +1,18 @@
 /**
+ * ============================================================
+ * Archivo: src/pages/supervisor/SupervisorReportes.tsx
  * Página: SupervisorReportes
- * - Carga Google Maps **una sola vez** con libraries=['places'].
- * - AddressAutocomplete NO llama useJsApiLoader.
- * - MapPreview NO llama useJsApiLoader y recibe lat/lng numéricos.
- * - Filtro de fecha corrige comparación normalizando ISO -> YYYY-MM-DD.
- * - Listado muestra fecha sin hora (YYYY-MM-DD).
- * - Tras crear/editar: limpia formulario. Eliminar: pide confirmación. Editar: auto-scroll.
- * - Listado: más nuevo→antiguo + filtros.
- * - Mapeo RUT creador → rut_responsable (DB) y técnico asignado → rut_usuario (DB).
+ * Descripción:
+ *  - Carga Google Maps **una sola vez** con libraries=['places'].
+ *  - AddressAutocomplete NO llama useJsApiLoader.
+ *  - MapPreview NO llama useJsApiLoader y recibe lat/lng numéricos.
+ *  - Filtro de fecha corrige comparación normalizando ISO -> YYYY-MM-DD.
+ *  - Listado muestra fecha sin hora (YYYY-MM-DD).
+ *  - Tras crear/editar: limpia formulario. Eliminar: pide confirmación. Editar: auto-scroll.
+ *  - Listado: más nuevo→antiguo + filtros.
+ *  - Mapeo RUT creador → rut_responsable (DB) y técnico asignado → rut_usuario (DB).
+ *  - Mejora inputs: Sector/Edificio/Piso/Número/Comentarios ahora aceptan texto libre sin perder foco.
+ * ============================================================
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -127,7 +132,7 @@ const dateOnly = (value?: string | null): string => {
 
 const defaultForm = (): FormValues => ({
   fecha_reporte: todayISO(),
-  hora_inicio:timeHM(),
+  hora_inicio: timeHM(),
   hora_fin: '',
   comentario: '',
   rut_asignado: '',
@@ -402,9 +407,16 @@ const SupervisorReportes = () => {
     <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{children}</label>
   );
 
+  // Input base con defensas de foco para evitar blur en ciertos entornos
   const Input = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
     <input
       {...props}
+      onFocusCapture={(e) => props.onFocusCapture?.(e)}
+      onKeyDown={(e) => {
+        // Previene submits inesperados/propagaciones que causen blur
+        if (e.key === 'Enter') e.stopPropagation();
+        props.onKeyDown?.(e);
+      }}
       className={`border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition ${props.className || ''}`}
     />
   );
@@ -419,6 +431,14 @@ const SupervisorReportes = () => {
   const TextArea = (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => (
     <textarea
       {...props}
+      onFocusCapture={(e) => props.onFocusCapture?.(e)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          // Permite Ctrl/Cmd+Enter para saltos/acciones, pero evita submit del form
+          e.stopPropagation();
+        }
+        props.onKeyDown?.(e);
+      }}
       className={`border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition ${props.className || ''}`}
     />
   );
@@ -546,7 +566,14 @@ const SupervisorReportes = () => {
             {/* Comentario */}
             <div>
               <SectionTitle>📝 Comentarios</SectionTitle>
-              <TextArea name="comentario" value={form.comentario} onChange={handleChange} rows={3} placeholder="Observaciones..." />
+              <TextArea
+                name="comentario"
+                value={form.comentario}
+                onChange={handleChange}
+                rows={3}
+                placeholder="Observaciones..."
+                autoComplete="off"
+              />
             </div>
 
             {/* Ubicación (al final) */}
@@ -577,39 +604,81 @@ const SupervisorReportes = () => {
 
                   <div>
                     <FieldLabel>Número</FieldLabel>
-                    <Input name="numero" value={form.numero} onChange={handleChange} placeholder="N°" />
+                    <Input
+                      type="text"
+                      name="numero"
+                      value={form.numero}
+                      onChange={handleChange}
+                      placeholder="N°"
+                      autoComplete="off"
+                    />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <FieldLabel>Sector</FieldLabel>
-                      <Input name="sector" value={form.sector} onChange={handleChange} />
+                      <Input
+                        type="text"
+                        name="sector"
+                        value={form.sector}
+                        onChange={handleChange}
+                        autoComplete="off"
+                      />
                     </div>
                     <div>
                       <FieldLabel>Edificio</FieldLabel>
-                      <Input name="edificio" value={form.edificio} onChange={handleChange} />
+                      <Input
+                        type="text"
+                        name="edificio"
+                        value={form.edificio}
+                        onChange={handleChange}
+                        autoComplete="off"
+                      />
                     </div>
                     <div>
                       <FieldLabel>Piso</FieldLabel>
-                      <Input name="piso" value={form.piso} onChange={handleChange} />
+                      <Input
+                        type="text"
+                        name="piso"
+                        value={form.piso}
+                        onChange={handleChange}
+                        autoComplete="off"
+                      />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <FieldLabel>Latitud</FieldLabel>
-                      <Input name="latitud" type="number" step="any" value={form.latitud as any} onChange={handleChange} placeholder="-33.45" />
+                      <Input
+                        name="latitud"
+                        type="number"
+                        step="any"
+                        value={form.latitud as any}
+                        onChange={handleChange}
+                        placeholder="-33.45"
+                      />
                     </div>
                     <div>
                       <FieldLabel>Longitud</FieldLabel>
-                      <Input name="longitud" type="number" step="any" value={form.longitud as any} onChange={handleChange} placeholder="-70.67" />
+                      <Input
+                        name="longitud"
+                        type="number"
+                        step="any"
+                        value={form.longitud as any}
+                        onChange={handleChange}
+                        placeholder="-70.67"
+                      />
                     </div>
                   </div>
                 </div>
 
                 <div className="md:pl-2">
                   {!isMapsLoaded ? (
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 animate-pulse flex items-center justify-center text-sm text-gray-500" style={{ height: '240px', width: '100%' }}>
+                    <div
+                      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700 animate-pulse flex items-center justify-center text-sm text-gray-500"
+                      style={{ height: '240px', width: '100%' }}
+                    >
                       {mapsLoadError ? 'Error cargando mapa' : 'Cargando mapa…'}
                     </div>
                   ) : (
