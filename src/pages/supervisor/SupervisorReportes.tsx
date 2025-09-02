@@ -11,7 +11,7 @@
  *  - Tras crear/editar: limpia formulario. Eliminar: pide confirmación. Editar: auto-scroll.
  *  - Listado: más nuevo→antiguo + filtros.
  *  - Mapeo RUT creador → rut_responsable (DB) y técnico asignado → rut_usuario (DB).
- *  - Mejora inputs: Sector/Edificio/Piso/Número/Comentarios ahora aceptan texto libre sin perder foco.
+ *  - FIX foco: Sector/Edificio/Piso/Número/Comentarios ahora son NO controlados con refs.
  * ============================================================
  */
 
@@ -85,6 +85,7 @@ type FormValues = {
   fecha_reporte: string;
   hora_inicio: string;
   hora_fin: string;
+  // comentario / numero / sector / edificio / piso se manejarán por refs (no controlados)
   comentario: string;
   rut_asignado: string; // técnico asignado → DB: rut_usuario
   rut_cliente: string;
@@ -120,7 +121,6 @@ const timeHM = () => {
 /** Normaliza a 'YYYY-MM-DD' en zona local (sirve para ISO con 'T' o fechas simples) */
 const dateOnly = (value?: string | null): string => {
   if (!value) return '';
-  // Si ya viene en formato 'YYYY-MM-DD...' cortamos a 10
   if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
   const d = new Date(value);
   if (isNaN(d.getTime())) return '';
@@ -162,6 +162,31 @@ const SupervisorReportes = () => {
   const [form, setForm] = useState<FormValues>(defaultForm());
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // Refs para inputs NO controlados (evitan pérdida de foco)
+  const numeroRef = useRef<HTMLInputElement>(null);
+  const sectorRef = useRef<HTMLInputElement>(null);
+  const edificioRef = useRef<HTMLInputElement>(null);
+  const pisoRef = useRef<HTMLInputElement>(null);
+  const comentarioRef = useRef<HTMLTextAreaElement>(null);
+
+  // Al entrar a editar, refrescamos los valores visibles de los inputs no controlados
+  useEffect(() => {
+    if (editingId !== null) {
+      if (numeroRef.current) numeroRef.current.value = form.numero || '';
+      if (sectorRef.current) sectorRef.current.value = form.sector || '';
+      if (edificioRef.current) edificioRef.current.value = form.edificio || '';
+      if (pisoRef.current) pisoRef.current.value = form.piso || '';
+      if (comentarioRef.current) comentarioRef.current.value = form.comentario || '';
+    } else {
+      // nuevo
+      if (numeroRef.current) numeroRef.current.value = '';
+      if (sectorRef.current) sectorRef.current.value = '';
+      if (edificioRef.current) edificioRef.current.value = '';
+      if (pisoRef.current) pisoRef.current.value = '';
+      if (comentarioRef.current) comentarioRef.current.value = '';
+    }
+  }, [editingId]); // solo cuando cambia el modo edición
 
   // Loader único
   const { isLoaded: isMapsLoaded, loadError: mapsLoadError } = useJsApiLoader({
@@ -240,7 +265,6 @@ const SupervisorReportes = () => {
       setLoadingList(true);
       const { data } = await api.get('/reportes');
       const lista: ReporteRow[] = Array.isArray(data) ? data : [];
-      // Más nuevo → más antiguo por id
       const ordenada = [...lista].sort((a, b) => (b.id_reporte || 0) - (a.id_reporte || 0));
       setReportes(ordenada);
     } catch (e) {
@@ -255,7 +279,7 @@ const SupervisorReportes = () => {
   const filtered = useMemo(() => {
     return reportes.filter((r) => {
       if (fRutUsuario && !r.rut_usuario?.includes(fRutUsuario)) return false;
-      if (fFecha && dateOnly(r.fecha_reporte) !== fFecha) return false; // <-- normalizado
+      if (fFecha && dateOnly(r.fecha_reporte) !== fFecha) return false;
       if (fTipoServicio !== 'all' && r.id_tipo_servicio !== fTipoServicio) return false;
       if (fTipoHardware !== 'all' && r.id_tipo_hardware !== fTipoHardware) return false;
       if (fSO !== 'all' && r.id_sistema_operativo !== fSO) return false;
@@ -282,6 +306,12 @@ const SupervisorReportes = () => {
   const resetForm = () => {
     setForm(defaultForm());
     setEditingId(null);
+    // limpiar inputs no controlados visualmente
+    if (numeroRef.current) numeroRef.current.value = '';
+    if (sectorRef.current) sectorRef.current.value = '';
+    if (edificioRef.current) edificioRef.current.value = '';
+    if (pisoRef.current) pisoRef.current.value = '';
+    if (comentarioRef.current) comentarioRef.current.value = '';
   };
 
   const scrollToForm = () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -295,13 +325,20 @@ const SupervisorReportes = () => {
       return alert('Debes seleccionar Tipo de Servicio y Estado del Servicio.');
     }
 
+    // Leemos SIEMPRE los 5 campos desde sus refs (no controlados)
+    const numeroVal = numeroRef.current?.value ?? '';
+    const sectorVal = sectorRef.current?.value ?? '';
+    const edificioVal = edificioRef.current?.value ?? '';
+    const pisoVal = pisoRef.current?.value ?? '';
+    const comentarioVal = comentarioRef.current?.value ?? '';
+
     const payload = {
       fecha_reporte: form.fecha_reporte,
-      comentario: form.comentario || '',
+      comentario: comentarioVal || '',
       hora_inicio: form.hora_inicio || null,
       hora_fin: form.hora_fin || null,
       direccion: form.direccion || '',
-      numero: form.numero || '',
+      numero: numeroVal || '',
       rut_usuario: form.rut_asignado,   // técnico asignado
       rut_responsable: rutCreador,      // creador
       rut_cliente: form.rut_cliente,
@@ -309,9 +346,9 @@ const SupervisorReportes = () => {
       id_tipo_hardware: form.id_tipo_hardware || null,
       id_sistema_operativo: form.id_sistema_operativo || null,
       id_estado_servicio: form.id_estado_servicio,
-      sector: form.sector || '',
-      edificio: form.edificio || '',
-      piso: form.piso || '',
+      sector: sectorVal || '',
+      edificio: edificioVal || '',
+      piso: pisoVal || '',
       latitud: form.latitud === '' ? null : form.latitud,
       longitud: form.longitud === '' ? null : form.longitud,
       id_rut_empresa_cobro: form.id_rut_empresa_cobro || null,
@@ -325,7 +362,7 @@ const SupervisorReportes = () => {
         await api.post('/reportes', payload);
       }
       await fetchReportes();
-      resetForm(); // ✅ limpiar tras crear/editar
+      resetForm();
     } catch (error) {
       console.error('Error guardando reporte', error);
       alert('No se pudo guardar el reporte.');
@@ -337,7 +374,6 @@ const SupervisorReportes = () => {
   const handleEdit = (row: ReporteRow) => {
     setEditingId(row.id_reporte);
     setForm({
-      // normalizamos para input type="date"
       fecha_reporte: dateOnly(row.fecha_reporte) || todayISO(),
       hora_inicio: (row.hora_inicio || '').slice(0, 5),
       hora_fin: (row.hora_fin || '').slice(0, 5),
@@ -357,6 +393,16 @@ const SupervisorReportes = () => {
       latitud: row.latitud ?? '',
       longitud: row.longitud ?? '',
     });
+
+    // Ajustamos valores visibles de los NO controlados (sin perder foco)
+    setTimeout(() => {
+      if (numeroRef.current) numeroRef.current.value = row.numero || '';
+      if (sectorRef.current) sectorRef.current.value = row.sector || '';
+      if (edificioRef.current) edificioRef.current.value = row.edificio || '';
+      if (pisoRef.current) pisoRef.current.value = row.piso || '';
+      if (comentarioRef.current) comentarioRef.current.value = row.comentario || '';
+    }, 0);
+
     scrollToForm();
   };
 
@@ -407,16 +453,9 @@ const SupervisorReportes = () => {
     <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{children}</label>
   );
 
-  // Input base con defensas de foco para evitar blur en ciertos entornos
   const Input = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
     <input
       {...props}
-      onFocusCapture={(e) => props.onFocusCapture?.(e)}
-      onKeyDown={(e) => {
-        // Previene submits inesperados/propagaciones que causen blur
-        if (e.key === 'Enter') e.stopPropagation();
-        props.onKeyDown?.(e);
-      }}
       className={`border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition ${props.className || ''}`}
     />
   );
@@ -424,21 +463,6 @@ const SupervisorReportes = () => {
   const Select = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
     <select
       {...props}
-      className={`border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition ${props.className || ''}`}
-    />
-  );
-
-  const TextArea = (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => (
-    <textarea
-      {...props}
-      onFocusCapture={(e) => props.onFocusCapture?.(e)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-          // Permite Ctrl/Cmd+Enter para saltos/acciones, pero evita submit del form
-          e.stopPropagation();
-        }
-        props.onKeyDown?.(e);
-      }}
       className={`border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition ${props.className || ''}`}
     />
   );
@@ -563,16 +587,19 @@ const SupervisorReportes = () => {
               </div>
             </div>
 
-            {/* Comentario */}
+            {/* Comentarios (NO controlado) */}
             <div>
               <SectionTitle>📝 Comentarios</SectionTitle>
-              <TextArea
+              <textarea
+                ref={comentarioRef}
+                key={`comentario-${editingId ?? 'new'}`}
                 name="comentario"
-                value={form.comentario}
-                onChange={handleChange}
+                defaultValue={form.comentario}
                 rows={3}
                 placeholder="Observaciones..."
                 autoComplete="off"
+                spellCheck={false}
+                className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
               />
             </div>
 
@@ -590,10 +617,12 @@ const SupervisorReportes = () => {
                         setForm((prev) => ({
                           ...prev,
                           direccion: d.address || prev.direccion,
-                          numero: d.numero || prev.numero,
+                          // si el autocompletado trae número, lo volcamos al ref visualmente
+                          ...(d.numero ? {} : {}),
                           latitud: d.lat ?? '',
                           longitud: d.lng ?? '',
                         }));
+                        if (d.numero && numeroRef.current) numeroRef.current.value = d.numero;
                       }}
                       componentRestrictions={{ country: 'cl' }}
                     />
@@ -604,45 +633,57 @@ const SupervisorReportes = () => {
 
                   <div>
                     <FieldLabel>Número</FieldLabel>
-                    <Input
-                      type="text"
+                    <input
+                      ref={numeroRef}
+                      key={`numero-${editingId ?? 'new'}`}
                       name="numero"
-                      value={form.numero}
-                      onChange={handleChange}
+                      type="text"
+                      defaultValue={form.numero}
                       placeholder="N°"
                       autoComplete="off"
+                      spellCheck={false}
+                      className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
                     />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <FieldLabel>Sector</FieldLabel>
-                      <Input
-                        type="text"
+                      <input
+                        ref={sectorRef}
+                        key={`sector-${editingId ?? 'new'}`}
                         name="sector"
-                        value={form.sector}
-                        onChange={handleChange}
+                        type="text"
+                        defaultValue={form.sector}
                         autoComplete="off"
+                        spellCheck={false}
+                        className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
                       />
                     </div>
                     <div>
                       <FieldLabel>Edificio</FieldLabel>
-                      <Input
-                        type="text"
+                      <input
+                        ref={edificioRef}
+                        key={`edificio-${editingId ?? 'new'}`}
                         name="edificio"
-                        value={form.edificio}
-                        onChange={handleChange}
+                        type="text"
+                        defaultValue={form.edificio}
                         autoComplete="off"
+                        spellCheck={false}
+                        className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
                       />
                     </div>
                     <div>
                       <FieldLabel>Piso</FieldLabel>
-                      <Input
-                        type="text"
+                      <input
+                        ref={pisoRef}
+                        key={`piso-${editingId ?? 'new'}`}
                         name="piso"
-                        value={form.piso}
-                        onChange={handleChange}
+                        type="text"
+                        defaultValue={form.piso}
                         autoComplete="off"
+                        spellCheck={false}
+                        className="border rounded-md p-2 w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none transition"
                       />
                     </div>
                   </div>
@@ -698,10 +739,10 @@ const SupervisorReportes = () => {
             <div className="flex flex-col sm:flex-row gap-2 justify-end pt-2">
               {editingId && (
                 <button
-                  type="button"
-                  onClick={resetForm}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-gray-300 hover:bg-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 transition"
-                  title="Cancelar edición"
+                    type="button"
+                    onClick={resetForm}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-gray-300 hover:bg-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 transition"
+                    title="Cancelar edición"
                 >
                   <XMarkIcon className="h-5 w-5" />
                   Cancelar
@@ -814,7 +855,6 @@ const SupervisorReportes = () => {
                   filtered.map((r) => (
                     <tr key={r.id_reporte} className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
                       <td className="px-3 py-2 font-mono">{r.id_reporte}</td>
-                      {/* Mostrar solo fecha normalizada */}
                       <td className="px-3 py-2">{dateOnly(r.fecha_reporte)}</td>
                       <td className="px-3 py-2">{(r.hora_inicio || '').slice(0, 5)}</td>
                       <td className="px-3 py-2">{r.nombre_cliente || r.rut_cliente}</td>
