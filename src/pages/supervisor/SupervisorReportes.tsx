@@ -3,6 +3,14 @@
  * Archivo: src/pages/supervisor/SupervisorReportes.tsx
  * Página: SupervisorReportes
  * Descripción:
+ *  - Corregido: se agregan campos de catálogo en el formulario:
+ *      • Tipo de Servicio (*) [OBLIGATORIO]
+ *      • Estado del Servicio (*) [OBLIGATORIO]
+ *      • Tipo de Hardware (opcional)
+ *      • Sistema Operativo (opcional)
+ *    Centro de costo ya existía y queda opcional.
+ *  - Los campos requeridos que ya existían se mantienen:
+ *      • Fecha de reporte*, Cliente*, RUT responsable (técnico asignado)*
  *  - FIX foco: Sector/Edificio/Piso/Número/Comentarios son NO controlados (refs) para evitar blur por re-render.
  *  - Validaciones de largo máximo según DB:
  *      numero VARCHAR(10), sector VARCHAR(100), edificio VARCHAR(100), piso VARCHAR(20)
@@ -84,11 +92,11 @@ type FormValues = {
   comentario: string;
   rut_asignado: string;
   rut_cliente: string;
-  id_rut_empresa_cobro: string;
-  id_tipo_servicio: number | '';
-  id_tipo_hardware: number | '';
-  id_estado_servicio: number | '';
-  id_sistema_operativo: number | '';
+  id_rut_empresa_cobro: string;       // opcional
+  id_tipo_servicio: number | '';       // OBLIGATORIO
+  id_tipo_hardware: number | '';       // opcional
+  id_estado_servicio: number | '';     // OBLIGATORIO
+  id_sistema_operativo: number | '';   // opcional
   direccion: string;
   numero: string;
   sector: string;
@@ -141,11 +149,11 @@ const defaultForm = (): FormValues => ({
   comentario: '',
   rut_asignado: '',
   rut_cliente: '',
-  id_rut_empresa_cobro: '',
-  id_tipo_servicio: '',
-  id_tipo_hardware: '',
-  id_estado_servicio: '',
-  id_sistema_operativo: '',
+  id_rut_empresa_cobro: '',   // opcional
+  id_tipo_servicio: '',       // OBLIGATORIO (se valida en submit)
+  id_tipo_hardware: '',       // opcional
+  id_estado_servicio: '',     // OBLIGATORIO (se valida en submit)
+  id_sistema_operativo: '',   // opcional
   direccion: '',
   numero: '',
   sector: '',
@@ -330,9 +338,11 @@ const SupervisorReportes = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Requeridos que se mantienen
     if (!rutCreador) return alert('No se detecta el RUT del usuario autenticado.');
     if (!form.rut_asignado) return alert('Debes seleccionar el RUT responsable (técnico asignado).');
     if (!form.rut_cliente) return alert('Debes seleccionar un cliente.');
+    // Requeridos nuevos solicitados
     if (!form.id_tipo_servicio || !form.id_estado_servicio) {
       return alert('Debes seleccionar Tipo de Servicio y Estado del Servicio.');
     }
@@ -371,16 +381,16 @@ const SupervisorReportes = () => {
       rut_usuario: form.rut_asignado,   // técnico asignado
       rut_responsable: rutCreador,      // creador
       rut_cliente: form.rut_cliente,
-      id_tipo_servicio: form.id_tipo_servicio || null,
-      id_tipo_hardware: form.id_tipo_hardware || null,
-      id_sistema_operativo: form.id_sistema_operativo || null,
-      id_estado_servicio: form.id_estado_servicio,
+      id_tipo_servicio: form.id_tipo_servicio || null,        // requerido (no debería ir null)
+      id_tipo_hardware: form.id_tipo_hardware || null,        // opcional
+      id_sistema_operativo: form.id_sistema_operativo || null,// opcional
+      id_estado_servicio: form.id_estado_servicio,            // requerido
       sector: sectorVal || '',
       edificio: edificioVal || '',
       piso: pisoVal || '',
       latitud: form.latitud === '' ? null : form.latitud,
       longitud: form.longitud === '' ? null : form.longitud,
-      id_rut_empresa_cobro: form.id_rut_empresa_cobro || null,
+      id_rut_empresa_cobro: form.id_rut_empresa_cobro || null, // opcional
     };
 
     try {
@@ -554,7 +564,7 @@ const SupervisorReportes = () => {
                 <div>
                   <FieldLabel>Centro de costo</FieldLabel>
                   <Select name="id_rut_empresa_cobro" value={form.id_rut_empresa_cobro} onChange={handleChange}>
-                    <option value="">-- Selecciona centro --</option>
+                    <option value="">-- Selecciona centro (opcional) --</option>
                     {centros.map((cc) => (
                       <option key={cc.id_rut_empresa_cobro} value={cc.id_rut_empresa_cobro}>
                         {cc.nombre_centro_costo} ({cc.id_rut_empresa_cobro})
@@ -569,6 +579,75 @@ const SupervisorReportes = () => {
                     {tecnicos.map((t) => (
                       <option key={t.rut} value={t.rut}>
                         {t.nombre} {t.apellido_paterno ? t.apellido_paterno : ''} ({t.rut})
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* Catálogos del reporte */}
+            <div>
+              <SectionTitle>⚙️ Servicio y estado (catálogos)</SectionTitle>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div>
+                  <FieldLabel>Tipo de Servicio*</FieldLabel>
+                  <Select
+                    name="id_tipo_servicio"
+                    value={form.id_tipo_servicio as any}
+                    onChange={handleChange}
+                    required
+                  >
+                    <option value="">-- Selecciona tipo de servicio --</option>
+                    {tiposServicio.map((x) => (
+                      <option key={x.id_tipo_servicio} value={x.id_tipo_servicio}>
+                        {x.descripcion}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <FieldLabel>Estado del Servicio*</FieldLabel>
+                  <Select
+                    name="id_estado_servicio"
+                    value={form.id_estado_servicio as any}
+                    onChange={handleChange}
+                    required
+                  >
+                    <option value="">-- Selecciona estado --</option>
+                    {estados.map((e) => (
+                      <option key={e.id_estado_servicio} value={e.id_estado_servicio}>
+                        {e.descripcion}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <FieldLabel>Tipo de Hardware</FieldLabel>
+                  <Select
+                    name="id_tipo_hardware"
+                    value={form.id_tipo_hardware as any}
+                    onChange={handleChange}
+                  >
+                    <option value="">-- (opcional) --</option>
+                    {tiposHardware.map((x) => (
+                      <option key={x.id_tipo_hardware} value={x.id_tipo_hardware}>
+                        {x.descripcion}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <FieldLabel>Sistema Operativo</FieldLabel>
+                  <Select
+                    name="id_sistema_operativo"
+                    value={form.id_sistema_operativo as any}
+                    onChange={handleChange}
+                  >
+                    <option value="">-- (opcional) --</option>
+                    {sistemas.map((s) => (
+                      <option key={s.id_sistema_operativo} value={s.id_sistema_operativo}>
+                        {s.nombre_sistema}
                       </option>
                     ))}
                   </Select>
