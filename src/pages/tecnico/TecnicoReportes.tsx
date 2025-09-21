@@ -151,12 +151,12 @@ const TecnicoReportes: React.FC = () => {
     return m;
   }, [clientes]);
 
-  /** Filtrado en memoria */
+  /** Filtrado + ordenamiento en memoria */
   const listFiltered = useMemo(() => {
     const norm = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
     const fCli = norm(fCliente || '');
 
-    return reportes.filter((r) => {
+    const filtered = reportes.filter((r) => {
       // Cliente por NOMBRE
       const nombreCliente = r.rut_cliente ? (clienteMap.get(r.rut_cliente) || '') : '';
       if (fCli && !norm(nombreCliente).includes(fCli)) return false;
@@ -180,7 +180,38 @@ const TecnicoReportes: React.FC = () => {
 
       return true;
     });
-  }, [reportes, clienteMap, fCliente, fFecha, fId, fEstado]);
+
+    const hasFilters = Boolean(fCliente) || Boolean(fFecha) || Boolean(fId) || fEstado !== 'all';
+    const parseDate = (value?: string | null): number => {
+      if (!value) return 0;
+      const ts = Date.parse(value);
+      return Number.isNaN(ts) ? 0 : ts;
+    };
+    const dateDesc = (a: Reporte, b: Reporte) => {
+      const diff = parseDate(b.fecha_reporte ?? null) - parseDate(a.fecha_reporte ?? null);
+      if (diff !== 0) return diff;
+      return (b.id_reporte || 0) - (a.id_reporte || 0);
+    };
+
+    if (hasFilters) {
+      return [...filtered].sort(dateDesc);
+    }
+
+    const getEstadoDescripcion = (r: Reporte) => {
+      if (typeof r.id_estado_servicio !== 'number') return '';
+      return (estadoMap.get(r.id_estado_servicio) || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase();
+    };
+
+    return [...filtered].sort((a, b) => {
+      const descA = getEstadoDescripcion(a);
+      const descB = getEstadoDescripcion(b);
+      const priorityA = descA === 'ASIGNADO' ? 0 : 1;
+      const priorityB = descB === 'ASIGNADO' ? 0 : 1;
+      if (priorityA !== priorityB) return priorityA - priorityB;
+      if (descA !== descB) return descA.localeCompare(descB, 'es', { sensitivity: 'base' });
+      return dateDesc(a, b);
+    });
+  }, [reportes, clienteMap, estadoMap, fCliente, fFecha, fId, fEstado]);
 
   /** Acciones de la tabla */
   const onEdit = async (r: Reporte) => {
