@@ -12,10 +12,10 @@
  * ============================================================
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getTiposEvidencia } from '../../services/catalogosService';
-import { createEvidencia } from '../../services/evidenciasService';
+import { createEvidencia, listarEvidenciasPorReporte, eliminarEvidencia } from '../../services/evidenciasService';
 import SignaturePad from '../ui/SignaturePad';
 import FileUploader from '../ui/FileUploader';
 import { compressToJpegDataURL } from '../../utils/imageTools';
@@ -45,6 +45,20 @@ type Row = {
   firmaDataUrl?: string | null;
 };
 
+type EvidenciaExistente = {
+  id_evidencia?: number;
+  id?: number;
+  id_tipo_evidencia?: number;
+  url?: string | null;
+  modelo?: string | null;
+  numero_serie?: string | null;
+  ipv4?: string | null;
+  ipv6?: string | null;
+  macadd?: string | null;
+  nombre_maquina?: string | null;
+  comentario?: string | null;
+};
+
 export default function EvidenciasModal({ idReporte, onClose, onSaved }: Props) {
   const { data: tipos = [] } = useQuery<TipoEvidencia[]>({
     queryKey: ['tipos-evidencia'],
@@ -54,6 +68,14 @@ export default function EvidenciasModal({ idReporte, onClose, onSaved }: Props) 
 
   const [rows, setRows] = useState<Row[]>([{}]);
   const isFirma = (t?: number) => t === 3;
+
+  const tipoMap = useMemo(() => new Map(tipos.map((t) => [t.id_tipo_evidencia, t.descripcion_tipo_evidencia])), [tipos]);
+
+  const { data: evidenciasExistentes = [], isFetching: loadingEvidencias, refetch: refetchEvidencias } = useQuery<EvidenciaExistente[]>({
+    queryKey: ['evidencias-reporte', idReporte],
+    queryFn: () => listarEvidenciasPorReporte(idReporte),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const addRow = () => setRows((rs) => [...rs, {}]);
   const removeRow = (idx: number) => setRows((rs) => rs.filter((_, i) => i !== idx));
@@ -65,6 +87,22 @@ export default function EvidenciasModal({ idReporte, onClose, onSaved }: Props) 
     }
     const dataUrl = await compressToJpegDataURL(f, { maxW: 1600, maxH: 1200, grayscale: true, quality: 0.7 });
     setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, url: dataUrl } : r)));
+  };
+
+  const handleDeleteEvidencia = async (ev: EvidenciaExistente) => {
+    const id = ev.id_evidencia ?? ev.id;
+    if (!id) return;
+    const ok = confirm('¿Eliminar la evidencia seleccionada?');
+    if (!ok) return;
+    try {
+      await eliminarEvidencia(id);
+      toast.success('Evidencia eliminada');
+      await refetchEvidencias();
+      onSaved();
+    } catch (error) {
+      console.error(error);
+      toast.error('No se pudo eliminar la evidencia');
+    }
   };
 
   const saveAll = async () => {
@@ -102,6 +140,8 @@ export default function EvidenciasModal({ idReporte, onClose, onSaved }: Props) 
         }
       }
       toast.success('Evidencias guardadas');
+      await refetchEvidencias();
+      setRows([{}]);
       onSaved();
       onClose();
     } catch (e) {
@@ -116,7 +156,54 @@ export default function EvidenciasModal({ idReporte, onClose, onSaved }: Props) 
         <h3 className="text-lg font-semibold">Evidencias del reporte #{idReporte}</h3>
 
         <div className="mt-3 flex flex-col gap-4 max-h-[60vh] overflow-auto pr-1">
-          {rows.map((row, idx) => {
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold">Evidencias registradas</h4>
+            {loadingEvidencias ? (
+              <div className="text-xs text-slate-500">Cargando evidencias...</div>
+            ) : evidenciasExistentes.length === 0 ? (
+              <div className="text-xs text-slate-500">Sin evidencias registradas.</div>
+            ) : (
+              evidenciasExistentes.map((ev) => {
+                const id = ev.id_evidencia ?? ev.id;
+                const tipoDescripcion = tipoMap.get(ev.id_tipo_evidencia ?? 0) ?? ev.id_tipo_evidencia ?? '-';
+                return (
+                  <div
+                    key={id ?? tipoDescripcion}
+                    className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 flex flex-col gap-1 text-xs"
+                  >
+                    <div className="flex flex-wrap gap-3">
+                      <span><b>Tipo:</b> {tipoDescripcion}</span>
+                      {ev.modelo ? <span><b>Modelo:</b> {ev.modelo}</span> : null}
+                      {ev.numero_serie ? <span><b>Serie:</b> {ev.numero_serie}</span> : null}
+                    </div>
+                    {ev.ipv4 || ev.ipv6 ? (
+                      <div className="flex flex-wrap gap-3">
+                        {ev.ipv4 ? <span><b>IPv4:</b> {ev.ipv4}</span> : null}
+                        {ev.ipv6 ? <span><b>IPv6:</b> {ev.ipv6}</span> : null}
+                      </div>
+                    ) : null}
+                    {ev.macadd ? <div><b>MAC:</b> {ev.macadd}</div> : null}
+                    {ev.nombre_maquina ? <div><b>Equipo:</b> {ev.nombre_maquina}</div> : null}
+                    {ev.url ? (
+                      <div className="mt-1">
+                        <img src={ev.url} alt="Evidencia" className="h-24 rounded border object-contain" />
+                      </div>
+                    ) : null}
+                    <div className="flex justify-end">
+                      <button className="px-2 py-1 rounded border text-xs" onClick={() => handleDeleteEvidencia(ev)}>
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold">Agregar nuevas evidencias</h4>
+            {rows.map((row, idx) => {
+
             const tipo = row.id_tipo_evidencia;
             return (
               <div key={idx} className="rounded-xl border p-3 grid grid-cols-1 md:grid-cols-6 gap-2">
@@ -237,9 +324,10 @@ export default function EvidenciasModal({ idReporte, onClose, onSaved }: Props) 
               </div>
             );
           })}
-          <button className="self-start px-3 py-2 rounded-xl border text-sm" onClick={addRow}>
-            + Agregar evidencia
-          </button>
+            <button className="self-start px-3 py-2 rounded-xl border text-sm" onClick={addRow}>
+              + Agregar evidencia
+            </button>
+          </section>
         </div>
 
         <div className="mt-4 flex justify-end gap-2">

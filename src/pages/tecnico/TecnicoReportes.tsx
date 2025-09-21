@@ -27,6 +27,9 @@ import {
   puedeEliminarTecnico,
   obtenerReporte,
 } from '../../services/reportesService';
+import { listarGastosPorReporte } from '../../services/gastosService';
+import { listarEvidenciasPorReporte } from '../../services/evidenciasService';
+
 import type { Reporte } from '../../types';
 import useAuthStore from '../../store/authStore';
 import { format } from 'date-fns';
@@ -36,6 +39,8 @@ import { getClientes, getEstadosServicio } from '../../services/catalogosService
 /** Tipos locales usados en esta vista (normalizados) */
 type EstadoServicio = { id_estado_servicio: number; descripcion: string };
 type Cliente = { rut_cliente: string; nombre_cliente: string };
+
+type ReporteConMeta = Reporte & { gastosCount: number; evidenciasCount: number };
 
 /** Formatter fecha segura */
 function fmtFecha(v?: string) {
@@ -52,8 +57,8 @@ const TecnicoReportes: React.FC = () => {
   const rutTecnico: string | undefined = useAuthStore((s: any) => s?.usuario?.rut);
 
   const [loading, setLoading] = useState(false);
-  const [reportes, setReportes] = useState<Reporte[]>([]);
-  const [selected, setSelected] = useState<Reporte | null>(null);
+  const [reportes, setReportes] = useState<ReporteConMeta[]>([]);
+  const [selected, setSelected] = useState<ReporteConMeta | null>(null);
 
   const [showGastos, setShowGastos] = useState(false);
   const [showEvidencias, setShowEvidencias] = useState(false);
@@ -123,9 +128,30 @@ const TecnicoReportes: React.FC = () => {
   const reload = async () => {
     if (!rutTecnico) return;
     setLoading(true);
-    try {
-      const data = await listarReportesTecnico(rutTecnico);
-      setReportes(Array.isArray(data) ? data : []);
+    try {      const data = await listarReportesTecnico(rutTecnico);
+      const lista = Array.isArray(data) ? data : [];
+      const withCounts: ReporteConMeta[] = await Promise.all(
+        lista.map(async (rep) => {
+          const id = rep.id_reporte;
+          if (!id) {
+            return { ...rep, gastosCount: 0, evidenciasCount: 0 };
+          }
+          const [gastosRes, evidenciasRes] = await Promise.allSettled([
+            listarGastosPorReporte(id),
+            listarEvidenciasPorReporte(id),
+          ]);
+          const gastosCount =
+            gastosRes.status === 'fulfilled' && Array.isArray(gastosRes.value)
+              ? gastosRes.value.length
+              : 0;
+          const evidenciasCount =
+            evidenciasRes.status === 'fulfilled' && Array.isArray(evidenciasRes.value)
+              ? evidenciasRes.value.length
+              : 0;
+          return { ...rep, gastosCount, evidenciasCount };
+        })
+      );
+      setReportes(withCounts);
     } catch (err) {
       console.error(err);
     } finally {
@@ -226,7 +252,7 @@ const TecnicoReportes: React.FC = () => {
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
 
-  const onDelete = async (r: Reporte) => {
+  const onDelete = async (r: ReporteConMeta) => {
     if (!rutTecnico || !r.id_reporte) return;
     if (!puedeEliminarTecnico(r, rutTecnico)) {
       alert('Solo puedes eliminar reportes donde eres AUTOR y RESPONSABLE.');
@@ -243,12 +269,12 @@ const TecnicoReportes: React.FC = () => {
     }
   };
 
-  const onOpenGastos = (r: Reporte) => {
+  const onOpenGastos = (r: ReporteConMeta) => {
     setSelected(r);
     setShowGastos(true);
   };
 
-  const onOpenEvidencias = (r: Reporte) => {
+  const onOpenEvidencias = (r: ReporteConMeta) => {
     setSelected(r);
     setShowEvidencias(true);
   };
@@ -336,7 +362,7 @@ const TecnicoReportes: React.FC = () => {
           className="overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-md"
           style={{ maxHeight: 56 * 5 + 40 }}
         >
-          <table className="min-w-[820px] w-full text-sm">
+          <table className="min-w-[960px] w-full text-sm">
             <thead className="sticky top-0 bg-slate-100 dark:bg-slate-900 z-10">
               <tr className="text-left border-b border-slate-200 dark:border-slate-700">
                 <th className="py-2 px-2">#</th>
@@ -344,7 +370,7 @@ const TecnicoReportes: React.FC = () => {
                 <th className="py-2 px-2">Cliente</th>
                 <th className="py-2 px-2">Dirección</th>
                 <th className="py-2 px-2">Estado</th>
-                <th className="py-2 px-2">Acciones</th>
+                <th className="py-2 px-2">Acciones</th><th className="py-2 px-2 text-center">Evidencias</th><th className="py-2 px-2 text-center">Gastos</th>
               </tr>
             </thead>
             <tbody>
@@ -397,6 +423,8 @@ const TecnicoReportes: React.FC = () => {
                       </button>
                     </div>
                   </td>
+                  <td className="py-2 px-2 text-center">{r.evidenciasCount ?? 0}</td>
+                  <td className="py-2 px-2 text-center">{r.gastosCount ?? 0}</td>
                 </tr>
               ))}
             </tbody>
@@ -436,6 +464,8 @@ const TecnicoReportes: React.FC = () => {
             <div className="mt-1 text-sm text-slate-700 dark:text-slate-300">
               <div><b>Cliente:</b> {r.rut_cliente ? (clienteMap.get(r.rut_cliente) || r.rut_cliente) : '-'}</div>
               <div><b>Dirección:</b> {(r.direccion ?? '-') + ' ' + (r.numero ?? '')}</div>
+              <div><b>Evidencias:</b> {r.evidenciasCount ?? 0}</div>
+              <div><b>Gastos:</b> {r.gastosCount ?? 0}</div>
             </div>
             <div className="mt-2 flex gap-2">
               <button className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700" onClick={() => onEdit(r)}>
@@ -545,3 +575,8 @@ const TecnicoReportes: React.FC = () => {
 };
 
 export default TecnicoReportes;
+
+
+
+
+

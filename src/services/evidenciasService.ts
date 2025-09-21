@@ -88,3 +88,14 @@ export async function listarEvidenciasPorReporte(idReporte: number) {
     return Array.isArray(data) ? data : [];
   }
 }
+
+/**
+ * Elimina una evidencia por id (intenta ruta V12 y hace fallback a legacy).
+ */
+export async function eliminarEvidencia(idEvidencia: number): Promise<void> {
+  try {
+    await api.delete(`/evidencias/${idEvidencia}`);
+  } catch {
+    await api.delete(`/evidencias-reporte/${idEvidencia}`);
+  }
+}

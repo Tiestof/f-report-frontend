@@ -80,3 +80,14 @@ export async function listarGastosPorReporte(idReporte: number) {
     return Array.isArray(data) ? data : [];
   }
 }
+
+/**
+ * Elimina un gasto por id (intenta ruta V12 y hace fallback a legacy).
+ */
+export async function eliminarGasto(idGasto: number): Promise<void> {
+  try {
+    await api.delete(`/gastos/${idGasto}`);
+  } catch {
+    await api.delete(`/gastos-reporte/${idGasto}`);
+  }
+}

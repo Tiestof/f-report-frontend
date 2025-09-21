@@ -9,10 +9,10 @@
  * ============================================================
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getTiposGasto } from '../../services/catalogosService';
-import { createGasto } from '../../services/gastosService';
+import { createGasto, listarGastosPorReporte, eliminarGasto } from '../../services/gastosService';
 import { compressToJpegDataURL } from '../../utils/imageTools';
 import FileUploader from '../ui/FileUploader';
 import { toast } from 'sonner';
@@ -35,6 +35,18 @@ type Row = {
   preview?: string | null; // DataURL
 };
 
+type GastoExistente = {
+  id_gasto?: number;
+  id?: number;
+  id_tipo_gasto?: number;
+  monto?: number;
+  fecha_gasto?: string | null;
+  fecha?: string | null;
+  comentario?: string | null;
+  descripcion?: string | null;
+  imagen_url?: string | null;
+};
+
 export default function GastosModal({ idReporte, onClose, onSaved }: Props) {
   const { data: tipos = [] } = useQuery<TipoGasto[]>({
     queryKey: ['tipos-gasto'],
@@ -42,6 +54,14 @@ export default function GastosModal({ idReporte, onClose, onSaved }: Props) {
     staleTime: 10 * 60 * 1000,
   });
   const [rows, setRows] = useState<Row[]>([{}]);
+
+  const tipoMap = useMemo(() => new Map(tipos.map((t) => [t.id_tipo_gasto, t.descripcion])), [tipos]);
+
+  const { data: gastosExistentes = [], isFetching: loadingGastos, refetch: refetchGastos } = useQuery<GastoExistente[]>({
+    queryKey: ['gastos-reporte', idReporte],
+    queryFn: () => listarGastosPorReporte(idReporte),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const addRow = () => setRows((rs) => [...rs, {}]);
   const removeRow = (idx: number) => setRows((rs) => rs.filter((_, i) => i !== idx));
@@ -53,6 +73,22 @@ export default function GastosModal({ idReporte, onClose, onSaved }: Props) {
     }
     const dataUrl = await compressToJpegDataURL(f, { maxW: 1600, maxH: 1200, grayscale: true, quality: 0.7 });
     setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, file: f, preview: dataUrl } : r)));
+  };
+
+  const handleDelete = async (gasto: GastoExistente) => {
+    const id = gasto.id_gasto ?? gasto.id;
+    if (!id) return;
+    const ok = confirm('¿Eliminar el gasto seleccionado?');
+    if (!ok) return;
+    try {
+      await eliminarGasto(id);
+      toast.success('Gasto eliminado');
+      await refetchGastos();
+      onSaved();
+    } catch (error) {
+      console.error(error);
+      toast.error('No se pudo eliminar el gasto');
+    }
   };
 
   const saveAll = async () => {
@@ -76,8 +112,11 @@ export default function GastosModal({ idReporte, onClose, onSaved }: Props) {
         });
       }
       toast.success('Gastos guardados');
+      await refetchGastos();
+      setRows([{}]);
       onSaved();
       onClose();
+
     } catch (e) {
       console.error(e);
       toast.error('Error al guardar gastos');
@@ -89,7 +128,48 @@ export default function GastosModal({ idReporte, onClose, onSaved }: Props) {
       <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-zinc-900 shadow-xl p-4">
         <h3 className="text-lg font-semibold">Gastos del reporte #{idReporte}</h3>
         <div className="mt-3 flex flex-col gap-4 max-h-[60vh] overflow-auto pr-1">
-          {rows.map((row, idx) => (
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold">Gastos registrados</h4>
+            {loadingGastos ? (
+              <div className="text-xs text-slate-500">Cargando gastos...</div>
+            ) : gastosExistentes.length === 0 ? (
+              <div className="text-xs text-slate-500">Sin gastos registrados.</div>
+            ) : (
+              gastosExistentes.map((g) => {
+                const id = g.id_gasto ?? g.id;
+                const fechaRaw = g.fecha_gasto ?? g.fecha ?? '';
+                const fecha = fechaRaw ? new Date(fechaRaw).toISOString().slice(0, 10) : '';
+                const comentario = g.comentario ?? g.descripcion ?? '';
+                return (
+                  <div
+                    key={id ?? `${fecha}-${comentario}`}
+                    className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 flex flex-col gap-1 text-xs"
+                  >
+                    <div className="flex flex-wrap gap-3">
+                      <span><b>Tipo:</b> {tipoMap.get(g.id_tipo_gasto ?? 0) ?? g.id_tipo_gasto ?? '-'}</span>
+                      <span><b>Monto:</b> {g.monto != null ? Math.round(Number(g.monto)) : '-'}</span>
+                      <span><b>Fecha:</b> {fecha || '-'}</span>
+                    </div>
+                    {comentario ? <div><b>Comentario:</b> {comentario}</div> : null}
+                    {g.imagen_url ? (
+                      <div className="mt-1">
+                        <img src={g.imagen_url} alt="Evidencia gasto" className="h-20 rounded border object-cover" />
+                      </div>
+                    ) : null}
+                    <div className="flex justify-end">
+                      <button className="px-2 py-1 rounded border text-xs" onClick={() => handleDelete(g)}>
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold">Agregar nuevos gastos</h4>
+            {rows.map((row, idx) => (
             <div key={idx} className="rounded-xl border p-3 grid grid-cols-1 md:grid-cols-6 gap-2">
               <div>
                 <label className="text-xs">Tipo</label>
@@ -154,9 +234,10 @@ export default function GastosModal({ idReporte, onClose, onSaved }: Props) {
               </div>
             </div>
           ))}
-          <button className="self-start px-3 py-2 rounded-xl border text-sm" onClick={addRow}>
-            + Agregar gasto
-          </button>
+            <button className="self-start px-3 py-2 rounded-xl border text-sm" onClick={addRow}>
+              + Agregar gasto
+            </button>
+          </section>
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
