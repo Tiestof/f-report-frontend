@@ -240,14 +240,16 @@ const TecnicoReportes: React.FC = () => {
   }, [reportes, clienteMap, estadoMap, fCliente, fFecha, fId, fEstado]);
 
   /** Acciones de la tabla */
-  const onEdit = async (r: Reporte) => {
+  const onEdit = async (r: ReporteConMeta) => {
     if (!rutTecnico) return;
     if (!puedeEditarTecnico(r, rutTecnico)) {
       alert('No autorizado para editar este reporte.');
       return;
     }
     const full = await obtenerReporte(Number(r.id_reporte));
-    setSelected(full || r);
+    const counts = { gastosCount: r.gastosCount ?? 0, evidenciasCount: r.evidenciasCount ?? 0 };
+    const merged = full ? { ...full, ...counts } : { ...r, ...counts };
+    setSelected(merged);
     // Llevar scroll al formulario
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
@@ -575,6 +577,7 @@ const TecnicoReportes: React.FC = () => {
 };
 
 export default TecnicoReportes;
+
 
 
 
