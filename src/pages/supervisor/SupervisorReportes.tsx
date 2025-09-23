@@ -10,7 +10,7 @@
  *      • Sistema Operativo (opcional)
  *    Centro de costo ya existía y queda opcional.
  *  - Los campos requeridos que ya existían se mantienen:
- *      • Fecha de reporte*, Cliente*, RUT responsable (técnico asignado)*
+ *      • Fecha de reporte*, Cliente*, RUT Responsable (tecnico asignado)*
  *  - FIX foco: Sector/Edificio/Piso/Número/Comentarios son NO controlados (refs) para evitar blur por re-render.
  *  - Validaciones de largo máximo según DB:
  *      numero VARCHAR(10), sector VARCHAR(100), edificio VARCHAR(100), piso VARCHAR(20)
@@ -18,7 +18,7 @@
  *  - Carga Google Maps una sola vez (libraries=['places']).
  *  - Normalización de fecha a YYYY-MM-DD para filtros y listado.
  *  - Acciones: crear/editar/eliminar con feedback y limpieza del form.
- *  - Mapeo: RUT creador → rut_responsable; técnico asignado → rut_usuario.
+ *  - Mapeo: RUT del supervisor → rut_usuario; tecnico asignado → rut_responsable.
  * ============================================================
  */
 
@@ -267,7 +267,7 @@ const SupervisorReportes = () => {
         setSistemas(onlyActive(resSO.data as CatalogSO[]));
         setEstados(Array.isArray(resES.data) ? (resES.data as EstadoServicio[]) : []);
 
-        // Técnicos activos (id_tipo_usuario=1)
+        // Tecnicos activos (id_tipo_usuario=1)
         const users = Array.isArray(resUsuarios.data) ? (resUsuarios.data as any[]) : [];
         const techs = users.filter(
           (u) => u.id_tipo_usuario === 1 && (u.activado === 1 || u.activado === undefined)
@@ -298,7 +298,7 @@ const SupervisorReportes = () => {
   // ===== Filtrado =====
   const filtered = useMemo(() => {
     return reportes.filter((r) => {
-      if (fRutUsuario && !r.rut_usuario?.includes(fRutUsuario)) return false;
+      if (fRutUsuario && !r.rut_responsable?.includes(fRutUsuario)) return false;
       if (fFecha && dateOnly(r.fecha_reporte) !== fFecha) return false;
       if (fTipoServicio !== 'all' && r.id_tipo_servicio !== fTipoServicio) return false;
       if (fTipoHardware !== 'all' && r.id_tipo_hardware !== fTipoHardware) return false;
@@ -340,7 +340,7 @@ const SupervisorReportes = () => {
     e.preventDefault();
     // Requeridos que se mantienen
     if (!rutCreador) return alert('No se detecta el RUT del usuario autenticado.');
-    if (!form.rut_asignado) return alert('Debes seleccionar el RUT responsable (técnico asignado).');
+    if (!form.rut_asignado) return alert('Debes seleccionar el RUT Responsable (tecnico asignado).');
     if (!form.rut_cliente) return alert('Debes seleccionar un cliente.');
     // Requeridos nuevos solicitados
     if (!form.id_tipo_servicio || !form.id_estado_servicio) {
@@ -378,8 +378,8 @@ const SupervisorReportes = () => {
       hora_fin: form.hora_fin || null,
       direccion: form.direccion || '',
       numero: numeroVal || '',
-      rut_usuario: form.rut_asignado,   // técnico asignado
-      rut_responsable: rutCreador,      // creador
+      rut_usuario: rutCreador,          // supervisor creador
+      rut_responsable: form.rut_asignado, // tecnico asignado
       rut_cliente: form.rut_cliente,
       id_tipo_servicio: form.id_tipo_servicio || null,        // requerido (no debería ir null)
       id_tipo_hardware: form.id_tipo_hardware || null,        // opcional
@@ -417,7 +417,7 @@ const SupervisorReportes = () => {
       hora_inicio: (row.hora_inicio || '').slice(0, 5),
       hora_fin: (row.hora_fin || '').slice(0, 5),
       comentario: row.comentario || '',
-      rut_asignado: row.rut_usuario || '',
+      rut_asignado: row.rut_responsable || '',
       rut_cliente: row.rut_cliente || '',
       id_rut_empresa_cobro: row.id_rut_empresa_cobro || '',
       id_tipo_servicio: row.id_tipo_servicio || '',
@@ -528,7 +528,7 @@ const SupervisorReportes = () => {
         >
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Tiempo */}
-            <div>
+            <div className="rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 p-3 md:p-4 shadow-sm">
               <SectionTitle>🕒 Datos de tiempo</SectionTitle>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -547,7 +547,7 @@ const SupervisorReportes = () => {
             </div>
 
             {/* Cliente y asignación */}
-            <div>
+            <div className="rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 p-3 md:p-4 shadow-sm">
               <SectionTitle>👤 Datos cliente y asignación</SectionTitle>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -573,9 +573,9 @@ const SupervisorReportes = () => {
                   </Select>
                 </div>
                 <div>
-                  <FieldLabel>RUT responsable (Técnico asignado)*</FieldLabel>
+                  <FieldLabel>RUT Responsable (tecnico asignado)*</FieldLabel>
                   <Select name="rut_asignado" value={form.rut_asignado} onChange={handleChange} required>
-                    <option value="">-- Selecciona técnico --</option>
+                    <option value="">-- Selecciona tecnico --</option>
                     {tecnicos.map((t) => (
                       <option key={t.rut} value={t.rut}>
                         {t.nombre} {t.apellido_paterno ? t.apellido_paterno : ''} ({t.rut})
@@ -587,7 +587,7 @@ const SupervisorReportes = () => {
             </div>
 
             {/* Catálogos del reporte */}
-            <div>
+            <div className="rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 p-3 md:p-4 shadow-sm">
               <SectionTitle>⚙️ Servicio y estado (catálogos)</SectionTitle>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
@@ -656,7 +656,7 @@ const SupervisorReportes = () => {
             </div>
 
             {/* Comentarios (NO controlado) */}
-            <div>
+            <div className="rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 p-3 md:p-4 shadow-sm">
               <SectionTitle>📝 Comentarios</SectionTitle>
               <div className="space-y-1">
                 <textarea
@@ -679,7 +679,7 @@ const SupervisorReportes = () => {
             </div>
 
             {/* Ubicación */}
-            <div>
+            <div className="rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 p-3 md:p-4 shadow-sm">
               <SectionTitle>📍 Datos de ubicación</SectionTitle>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
                 <div className="space-y-3">
@@ -855,7 +855,7 @@ const SupervisorReportes = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
             <div>
-              <FieldLabel>Responsable (técnico)</FieldLabel>
+              <FieldLabel>Responsable (tecnico)</FieldLabel>
               <Input placeholder="Ej: 11111111K" value={fRutUsuario} onChange={(e) => setFRutUsuario(e.target.value.trim())} />
             </div>
             <div>
@@ -908,7 +908,8 @@ const SupervisorReportes = () => {
           </div>
 
           <div className="hidden md:block overflow-x-auto">
-            <table className="min-w-full">
+            <div className="max-h-[520px] overflow-y-auto">
+              <table className="min-w-full">
               <thead className="bg-gray-100 dark:bg-gray-900">
                 <tr className="text-left text-sm text-gray-700 dark:text-gray-300">
                   <th className="px-3 py-2">#</th>
@@ -919,7 +920,7 @@ const SupervisorReportes = () => {
                   <th className="px-3 py-2">Hardware</th>
                   <th className="px-3 py-2">SO</th>
                   <th className="px-3 py-2">Estado</th>
-                  <th className="px-3 py-2">Responsable </th>
+                  <th className="px-3 py-2">Responsable (tecnico)</th>
                   <th className="px-3 py-2 text-right">Acciones</th>
                 </tr>
               </thead>
@@ -939,7 +940,7 @@ const SupervisorReportes = () => {
                       <td className="px-3 py-2">{r.tipo_hardware}</td>
                       <td className="px-3 py-2">{r.nombre_sistema}</td>
                       <td className="px-3 py-2">{r.estado_servicio}</td>
-                      <td className="px-3 py-2">{r.rut_usuario}</td>
+                      <td className="px-3 py-2">{r.rut_responsable}</td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2 justify-end">
                           <button onClick={() => handleEdit(r)} className="p-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white transition" title="Editar">
@@ -956,9 +957,10 @@ const SupervisorReportes = () => {
               </tbody>
             </table>
           </div>
+        </div>
 
           {/* Cards móvil */}
-          <div className="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+          <div className="md:hidden divide-y divide-gray-200 dark:divide-gray-700 max-h-[520px] overflow-y-auto">
             {loadingList ? (
               <div className="p-4 text-center text-gray-500">Cargando...</div>
             ) : filtered.length === 0 ? (
@@ -986,7 +988,7 @@ const SupervisorReportes = () => {
                     <div><b>Hardware:</b> {r.tipo_hardware || '-'}</div>
                     <div><b>SO:</b> {r.nombre_sistema || '-'}</div>
                     <div><b>Estado:</b> {r.estado_servicio || '-'}</div>
-                    <div><b>RUT usuario:</b> {r.rut_usuario}</div>
+                    <div><b>RUT responsable:</b> {r.rut_responsable}</div>
                   </div>
                 </div>
               ))
@@ -999,3 +1001,4 @@ const SupervisorReportes = () => {
 };
 
 export default SupervisorReportes;
+
