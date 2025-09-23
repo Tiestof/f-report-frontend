@@ -6,7 +6,7 @@
  *    • KPI: Reportes asignados HOY (con fallback si el endpoint devuelve 0)
  *    • “Proximos hasta viernes” (HOY ∪ mañana→viernes, sin duplicados)
  *    • “Proximo servicio” (más cercano a la hora actual, muestra ID, FECHA, estado)
- *    • “Estados últimos 31 días” (agrupa por estado_servicio, con total)
+ *    • “Estados Ultimos 31 dias” (agrupa por estado_servicio, con total)
  * Notas:
  *  - Normaliza todas las fechas a YYYY-MM-DD para comparar sin errores de zona.
  *  - Un reporte “es mío” si rut_usuario === rut || rut_responsable === rut.
@@ -95,7 +95,7 @@ function hmToMinutes(hm?: string | null) {
 function buildAddressText(r: ApiReporte) {
   const parts: string[] = [];
   if (r.direccion) parts.push(r.direccion);
-  if (r.numero) parts.push(`número: ${r.numero}`);
+  if (r.numero) parts.push(`numero: ${r.numero}`);
   if (r.sector) parts.push(`Sector: ${r.sector}`);
   if (r.edificio) parts.push(`Edificio: ${r.edificio}`);
   if (r.piso) parts.push(`Piso: ${r.piso}`);
@@ -107,6 +107,23 @@ function buildMapsLink(r: ApiReporte) {
   const query = [direccion, numero].filter(Boolean).join(' ');
   return query ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}` : '#';
 }
+
+const allowedEstadosProximo = ['ASIGNADO'];
+
+function normalizeEstadoNombre(raw?: string | null) {
+  const base = (raw || '').toString().trim();
+  if (!base) return '';
+  const withoutDiacritics = base.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return withoutDiacritics.toUpperCase();
+}
+
+function esEstadoPermitido(estado?: string | null) {
+  const normalized = normalizeEstadoNombre(estado);
+  if (!normalized) return false;
+  if (allowedEstadosProximo.some((estado) => normalized.startsWith(estado))) return true;
+  return normalized.startsWith('REPROG');
+}
+
 
 export default function TecnicoDashboard() {
   const { usuario } = useAuthStore();
@@ -199,6 +216,7 @@ export default function TecnicoDashboard() {
   const proximoServicio = useMemo(() => {
     const candidatos = [...hoyApi, ...todos]
       .filter(r => esMio(r, rut))
+      .filter(r => esEstadoPermitido(r.estado_servicio))
       .filter(r => (r._fecha > hoyISO) || (r._fecha === hoyISO && hmToMinutes(r.hora_inicio) >= minHoy))
       .sort((a, b) =>
         a._fecha === b._fecha
@@ -214,7 +232,7 @@ export default function TecnicoDashboard() {
     return first;
   }, [hoyApi, todos, rut, hoyISO, minHoy]);
 
-  // 📊 Estados (últimos 31 días)
+  // 📊 Estados (Ultimos 31 dias)
   const estados31d = useMemo(() => {
     const desde = new Date(ahora);
     desde.setDate(desde.getDate() - 31);
@@ -265,6 +283,22 @@ export default function TecnicoDashboard() {
   const addr = proximoServicio ? buildAddressText(proximoServicio) : '';
   const mapsUrl = proximoServicio ? buildMapsLink(proximoServicio) : '#';
 
+  const estadoActual = proximoServicio
+    ? (proximoServicio.estado_servicio || (proximoServicio.id_estado_servicio ? `#${proximoServicio.id_estado_servicio}` : '--'))
+    : '--';
+
+  const proximoInfoTiles = proximoServicio
+    ? [
+        { label: 'ID REPORTE', value: `#${proximoServicio.id_reporte}` },
+        { label: 'Fecha', value: proximoServicio._fecha || '--' },
+        { label: 'Hora de inicio', value: proximoServicio.hora_inicio || '--:--', emphasis: true },
+        { label: 'Servicio', value: proximoServicio.tipo_servicio || (proximoServicio.id_tipo_servicio ? `Servicio #${proximoServicio.id_tipo_servicio}` : '--'), span: 2 },
+        { label: 'Cliente', value: proximoServicio.nombre_cliente || proximoServicio.cliente || '--', span: 2 },
+      ]
+    : [];
+
+  const comentarioProximo = (proximoServicio?.comentario || '').trim();
+
   return (
     <DashboardLayout>
       <div className="mb-4">
@@ -275,14 +309,14 @@ export default function TecnicoDashboard() {
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         {/* Reportes HOY */}
-        <div className="rounded-2xl p-4 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+        <div className="rounded-2xl p-4 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 shadow-sm">
           <div className="text-sm text-gray-500 dark:text-gray-400">Reportes asignados HOY</div>
           <div className="mt-2 text-3xl font-black text-gray-900 dark:text-gray-100">{totalHoy}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">({hoyISO})</div>
         </div>
 
         {/* Proximos hasta viernes */}
-        <div className="rounded-2xl p-4 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm md:col-span-2">
+        <div className="rounded-2xl p-4 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 shadow-sm md:col-span-2">
           <div className="text-sm text-gray-500 dark:text-gray-400">
             Proximos hasta viernes ({finSemanaISO})
           </div>
@@ -318,71 +352,69 @@ export default function TecnicoDashboard() {
       </div>
 
       {/* Proximo servicio */}
-      <div className="rounded-2xl p-5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+      <div className="rounded-2xl p-5 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 shadow-sm">
         <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-gray-100">Proximo servicio</h2>
         {!proximoServicio ? (
           <div className="text-gray-600 dark:text-gray-300">No hay servicios proximos.</div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* ID y FECHA (nuevo) */}
-            <div>
-              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">ID REPORTE</div>
-              <div className="font-semibold">#{proximoServicio.id_reporte}</div>
-            </div>
-            <div>
-              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Fecha</div>
-              <div className="font-semibold">{proximoServicio._fecha || '--'}</div>
-            </div>
-
-            <div>
-              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Servicio</div>
-              <div className="font-semibold">
-                {proximoServicio.tipo_servicio || (proximoServicio.id_tipo_servicio ? `Servicio #${proximoServicio.id_tipo_servicio}` : '--')}
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                {proximoInfoTiles.map((item) => {
+                  const spanClass =
+                    item.span === 2 ? 'sm:col-span-2' : item.span === 3 ? 'sm:col-span-3' : '';
+                  const valueClass = item.emphasis
+                    ? 'mt-2 text-xl font-extrabold text-gray-900 dark:text-gray-100'
+                    : 'mt-2 font-semibold text-gray-900 dark:text-gray-100';
+                  return (
+                    <div
+                      key={item.label}
+                      className={`rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 p-3 ${spanClass}`}
+                    >
+                      <div className="text-xs uppercase text-gray-500 dark:text-gray-400">{item.label}</div>
+                      <div className={valueClass}>{item.value}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 p-4">
+                <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Comentario</div>
+                <div className="mt-2 text-sm text-gray-700 dark:text-gray-200">{comentarioProximo || '--'}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 p-4">
+                <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Direccion</div>
+                <div className="mt-2 text-sm text-gray-700 dark:text-gray-200">{addr || '--'}</div>
+                <a
+                  className="mt-3 inline-flex items-center gap-2 self-start rounded-md border border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400 px-3 py-1 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-500/10 transition"
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Abrir en Maps"
+                >
+                  <MapPinIcon className="h-4 w-4" />
+                  <span>Abrir en Maps</span>
+                </a>
               </div>
             </div>
-
-            <div>
-              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Hora de inicio</div>
-              <div className="text-2xl font-extrabold text-gray-900 dark:text-gray-100">{proximoServicio.hora_inicio || '--:--'}</div>
-            </div>
-
-            <div>
-              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Cliente</div>
-              <div className="font-semibold">{proximoServicio.nombre_cliente || proximoServicio.cliente || '--'}</div>
-            </div>
-
-            <div className="md:col-span-2">
-              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Comentario</div>
-              <div className="font-medium text-gray-900 dark:text-gray-100">{(proximoServicio.comentario || '').trim() || '--'}</div>
-            </div>
-
-            <div className="md:col-span-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center text-xs px-2 py-1 rounded border border-amber-400 dark:border-amber-300 text-amber-700 dark:text-amber-300">
-                Estado: {proximoServicio.estado_servicio || (proximoServicio.id_estado_servicio ? `#${proximoServicio.id_estado_servicio}` : '--')}
-              </span>
-            </div>
-
-            <div className="md:col-span-2">
-              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Direccion</div>
-              <div className="font-medium text-gray-900 dark:text-gray-100">{addr || '--'}</div>
-              <a
-                className="mt-2 inline-flex items-center gap-2 self-start rounded-md border border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400 px-3 py-1 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-500/10 transition"
-                href={mapsUrl}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Abrir en Maps"
-              >
-                <MapPinIcon className="h-4 w-4" />
-                <span>Abrir en Maps</span>
-              </a>
+            <div className="flex flex-col gap-4 rounded-xl border border-blue-200 dark:border-blue-500/40 bg-blue-50/60 dark:bg-blue-500/10 p-4">
+              <div>
+                <div className="text-xs uppercase text-blue-700 dark:text-blue-200">Estado actual</div>
+                <div className="mt-2 text-2xl font-bold text-blue-900 dark:text-blue-100">{estadoActual}</div>
+                <p className="mt-3 text-sm text-blue-800/90 dark:text-blue-200/80">Organiza este servicio y revisa los materiales necesarios.</p>
+              </div>
+              <div className="rounded-lg border border-blue-200 dark:border-blue-500/40 bg-white dark:bg-gray-900/40 p-3">
+                <div className="text-xs uppercase text-blue-700 dark:text-blue-200">Horario objetivo</div>
+                <div className="mt-2 text-lg font-semibold text-blue-900 dark:text-blue-100">{proximoServicio.hora_inicio || '--:--'}</div>
+                <div className="text-xs text-blue-800/90 dark:text-blue-200/70">Fecha {proximoServicio._fecha || '--'}</div>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Estados últimos 31 días */}
-      <div className="rounded-2xl p-5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm mt-4">
-        <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-gray-100">Estados (últimos 31 días)</h2>
+      {/* Estados Ultimos 31 dias */}
+      <div className="rounded-2xl p-5 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 shadow-sm mt-4">
+        <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-gray-100">Estados (Ultimos 31 dias)</h2>
         {estados31d.arr.length === 0 ? (
           <div className="text-gray-600 dark:text-gray-300">No hay datos para el rango.</div>
         ) : (
