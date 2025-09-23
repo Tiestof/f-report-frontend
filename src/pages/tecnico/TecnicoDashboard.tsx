@@ -4,8 +4,8 @@
  * Propósito:
  *  - Dashboard del Técnico:
  *    • KPI: Reportes asignados HOY (con fallback si el endpoint devuelve 0)
- *    • “Próximos hasta viernes” (HOY ∪ mañana→viernes, sin duplicados)
- *    • “Próximo servicio” (más cercano a la hora actual, muestra ID, FECHA, estado)
+ *    • “Proximos hasta viernes” (HOY ∪ mañana→viernes, sin duplicados)
+ *    • “Proximo servicio” (más cercano a la hora actual, muestra ID, FECHA, estado)
  *    • “Estados últimos 31 días” (agrupa por estado_servicio, con total)
  * Notas:
  *  - Normaliza todas las fechas a YYYY-MM-DD para comparar sin errores de zona.
@@ -151,7 +151,7 @@ export default function TecnicoDashboard() {
     })();
   }, [rut]);
 
-  // 🔢 KPI HOY — endpoint con fallback a /reportes
+  // 🔢 KPI HOY -- endpoint con fallback a /reportes
   const totalHoy = useMemo(() => {
     const viaEndpoint = hoyApi.filter(r => esMio(r, rut) && r._fecha === hoyISO).length;
     const viaTodos = todos.filter(r => esMio(r, rut) && r._fecha === hoyISO).length;
@@ -162,7 +162,7 @@ export default function TecnicoDashboard() {
     return total;
   }, [hoyApi, todos, rut, hoyISO]);
 
-  // 📅 Próximos hasta viernes (HOY ∪ mañana→viernes)
+  // 📅 Proximos hasta viernes (HOY ∪ mañana→viernes)
   const proximosSemana = useMemo(() => {
     const hoySolo = [
       ...hoyApi.filter(r => esMio(r, rut) && r._fecha === hoyISO),
@@ -188,7 +188,7 @@ export default function TecnicoDashboard() {
     return res;
   }, [hoyApi, todos, rut, hoyISO, finSemanaISO]);
 
-  // ⏭️ Próximo servicio
+  // ⏭️ Proximo servicio
   const proximoServicio = useMemo(() => {
     const candidatos = [...hoyApi, ...todos]
       .filter(r => esMio(r, rut))
@@ -261,39 +261,39 @@ export default function TecnicoDashboard() {
   return (
     <DashboardLayout>
       <div className="mb-4">
-        <h1 className="text-2xl font-extrabold text-gray-800">Dashboard Técnico</h1>
-        <p className="mt-1 text-gray-600">Resumen de tareas y reportes asignados.</p>
+        <h1 className="text-2xl font-extrabold text-gray-900 dark:text-gray-100">Dashboard Tecnico</h1>
+        <p className="mt-1 text-gray-600 dark:text-gray-300">Resumen de tareas y reportes asignados.</p>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         {/* Reportes HOY */}
-        <div className="rounded-2xl p-4 border bg-white shadow-sm">
-          <div className="text-sm text-gray-500">Reportes asignados HOY</div>
-          <div className="mt-2 text-3xl font-black">{totalHoy}</div>
-          <div className="text-xs text-gray-500">({hoyISO})</div>
+        <div className="rounded-2xl p-4 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Reportes asignados HOY</div>
+          <div className="mt-2 text-3xl font-black text-gray-900 dark:text-gray-100">{totalHoy}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">({hoyISO})</div>
         </div>
 
-        {/* Próximos hasta viernes */}
-        <div className="rounded-2xl p-4 border bg-white shadow-sm md:col-span-2">
-          <div className="text-sm text-gray-500">
-            Próximos hasta viernes ({finSemanaISO})
+        {/* Proximos hasta viernes */}
+        <div className="rounded-2xl p-4 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm md:col-span-2">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            Proximos hasta viernes ({finSemanaISO})
           </div>
           {proximosSemana.length === 0 ? (
-            <div className="mt-2 text-gray-600">Sin reportes próximos.</div>
+            <div className="mt-2 text-gray-600 dark:text-gray-300">Sin reportes proximos.</div>
           ) : (
             <ul className="mt-2 space-y-2 max-h-48 overflow-y-auto pr-2">
               {proximosSemana.map((r) => (
-                <li key={r.id_reporte} className="flex items-center justify-between gap-3 border-b pb-2 last:border-none">
+                <li key={r.id_reporte} className="flex items-center justify-between gap-3 border-b border-gray-200 dark:border-gray-700 pb-2 last:border-none">
                   <div className="min-w-0">
-                    <div className="font-semibold truncate">
-                      {r._fecha} · {r.hora_inicio || '--:--'} · {r.nombre_cliente || r.cliente || 'Cliente'}
+                    <div className="font-semibold truncate text-gray-900 dark:text-gray-100">
+                      {r._fecha} - {r.hora_inicio || '--:--'} - {r.nombre_cliente || r.cliente || 'Cliente'}
                     </div>
-                    <div className="text-xs text-gray-500 truncate">
-                      {(r.tipo_servicio || (r.id_tipo_servicio ? `Servicio #${r.id_tipo_servicio}` : 'Servicio'))} · {buildAddressText(r)}
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {(r.tipo_servicio || (r.id_tipo_servicio ? `Servicio #${r.id_tipo_servicio}` : 'Servicio'))} - {buildAddressText(r)}
                     </div>
                   </div>
-                  <a className="text-sm underline shrink-0" href={buildMapsLink(r)} target="_blank" rel="noreferrer">
+                  <a className="text-sm underline text-blue-600 dark:text-blue-400 shrink-0" href={buildMapsLink(r)} target="_blank" rel="noreferrer">
                     Maps
                   </a>
                 </li>
@@ -303,55 +303,55 @@ export default function TecnicoDashboard() {
         </div>
       </div>
 
-      {/* Próximo servicio */}
-      <div className="rounded-2xl p-5 border bg-white shadow-sm">
-        <h2 className="text-lg font-bold mb-3">Próximo servicio</h2>
+      {/* Proximo servicio */}
+      <div className="rounded-2xl p-5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+        <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-gray-100">Proximo servicio</h2>
         {!proximoServicio ? (
-          <div className="text-gray-600">No hay servicios próximos.</div>
+          <div className="text-gray-600 dark:text-gray-300">No hay servicios proximos.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* ID y FECHA (nuevo) */}
             <div>
-              <div className="text-xs uppercase text-gray-500">ID REPORTE</div>
+              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">ID REPORTE</div>
               <div className="font-semibold">#{proximoServicio.id_reporte}</div>
             </div>
             <div>
-              <div className="text-xs uppercase text-gray-500">Fecha</div>
-              <div className="font-semibold">{proximoServicio._fecha || '—'}</div>
+              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Fecha</div>
+              <div className="font-semibold">{proximoServicio._fecha || '--'}</div>
             </div>
 
             <div>
-              <div className="text-xs uppercase text-gray-500">Servicio</div>
+              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Servicio</div>
               <div className="font-semibold">
-                {proximoServicio.tipo_servicio || (proximoServicio.id_tipo_servicio ? `Servicio #${proximoServicio.id_tipo_servicio}` : '—')}
+                {proximoServicio.tipo_servicio || (proximoServicio.id_tipo_servicio ? `Servicio #${proximoServicio.id_tipo_servicio}` : '--')}
               </div>
             </div>
 
             <div>
-              <div className="text-xs uppercase text-gray-500">Hora de inicio</div>
-              <div className="text-2xl font-extrabold">{proximoServicio.hora_inicio || '--:--'}</div>
+              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Hora de inicio</div>
+              <div className="text-2xl font-extrabold text-gray-900 dark:text-gray-100">{proximoServicio.hora_inicio || '--:--'}</div>
             </div>
 
             <div>
-              <div className="text-xs uppercase text-gray-500">Cliente</div>
-              <div className="font-semibold">{proximoServicio.nombre_cliente || proximoServicio.cliente || '—'}</div>
+              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Cliente</div>
+              <div className="font-semibold">{proximoServicio.nombre_cliente || proximoServicio.cliente || '--'}</div>
             </div>
 
             <div className="md:col-span-2">
-              <div className="text-xs uppercase text-gray-500">Comentario</div>
-              <div className="font-medium">{(proximoServicio.comentario || '').trim() || '—'}</div>
+              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Comentario</div>
+              <div className="font-medium text-gray-900 dark:text-gray-100">{(proximoServicio.comentario || '').trim() || '--'}</div>
             </div>
 
             <div className="md:col-span-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center text-xs px-2 py-1 rounded border border-amber-400 text-amber-700">
-                Estado: {proximoServicio.estado_servicio || (proximoServicio.id_estado_servicio ? `#${proximoServicio.id_estado_servicio}` : '—')}
+              <span className="inline-flex items-center text-xs px-2 py-1 rounded border border-amber-400 dark:border-amber-300 text-amber-700 dark:text-amber-300">
+                Estado: {proximoServicio.estado_servicio || (proximoServicio.id_estado_servicio ? `#${proximoServicio.id_estado_servicio}` : '--')}
               </span>
             </div>
 
             <div className="md:col-span-2">
-              <div className="text-xs uppercase text-gray-500">Dirección</div>
-              <div className="font-medium">{addr || '—'}</div>
-              <a className="inline-block mt-2 underline text-blue-600" href={mapsUrl} target="_blank" rel="noreferrer">
+              <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Direccion</div>
+              <div className="font-medium text-gray-900 dark:text-gray-100">{addr || '--'}</div>
+              <a className="inline-block mt-2 underline text-blue-600 dark:text-blue-400" href={mapsUrl} target="_blank" rel="noreferrer">
                 Abrir en Maps
               </a>
             </div>
@@ -360,23 +360,23 @@ export default function TecnicoDashboard() {
       </div>
 
       {/* Estados últimos 31 días */}
-      <div className="rounded-2xl p-5 border bg-white shadow-sm mt-4">
-        <h2 className="text-lg font-bold mb-3">Estados (últimos 31 días como responsable)</h2>
+      <div className="rounded-2xl p-5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm mt-4">
+        <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-gray-100">Estados (últimos 31 días como responsable)</h2>
         {estados31d.arr.length === 0 ? (
-          <div className="text-gray-600">No hay datos para el rango.</div>
+          <div className="text-gray-600 dark:text-gray-300">No hay datos para el rango.</div>
         ) : (
           <>
-            <ul className="divide-y divide-gray-200">
+            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
               {estados31d.arr.map((e) => (
                 <li key={e.estado} className="flex items-center justify-between py-2">
-                  <span className="text-gray-700">{e.estado}</span>
-                  <span className="font-bold">{e.total}</span>
+                  <span className="text-gray-700 dark:text-gray-200">{e.estado}</span>
+                  <span className="font-bold text-gray-900 dark:text-gray-100">{e.total}</span>
                 </li>
               ))}
             </ul>
-            <div className="mt-2 pt-3 border-t border-gray-300 flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-700">Total</span>
-              <span className="text-sm font-extrabold">{estados31d.total}</span>
+            <div className="mt-2 pt-3 border-t border-gray-300 dark:border-gray-700 flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Total</span>
+              <span className="text-sm font-extrabold text-gray-900 dark:text-gray-100">{estados31d.total}</span>
             </div>
           </>
         )}
