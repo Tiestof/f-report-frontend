@@ -1,21 +1,18 @@
 /**
  * ============================================================
- * Widget 4 — Distribución de estados (autónomo, sin props)
+ * Widget 4 - Distribucion de estados
  * Ruta: src/pages/dashboard/Widget4DistribucionEstados.tsx
- * Propósito:
- *  - Renderizar un pie con la distribución de estados del periodo,
- *    usando una paleta de colores accesible y consistente por estado.
  *
- * Cambios clave:
- *  - Colores por estado (map + fallback cíclico).
- *  - Etiquetas con nombre, cantidad y porcentaje.
- *  - Tooltip formateado.
- *  - Título dinámico con días de rango.
+ * Logica:
+ *  - Obtiene los reportes del backend (/reportes) y filtra por el rango indicado.
+ *  - Agrupa por estado utilizando la descripcion disponible (estado_servicio) y
+ *    usa id_estado_servicio como respaldo para mapear etiquetas conocidas.
+ *  - Calcula cantidades y porcentajes reales sobre la base de los datos de reportes.
  * ============================================================
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import api from "../../services/api";
 
 type EstadoGlobal = { estado: string; cantidad: number };
@@ -26,18 +23,37 @@ type Props = {
   fechaFin?: string;    // YYYY-MM-DD
 };
 
+type ApiReporte = {
+  id_reporte: number;
+  fecha_reporte: string;
+  estado_servicio?: string | null;
+  id_estado_servicio?: number | null;
+};
+
 /** Fecha actual en YYYY-MM-DD */
 function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** Diferencia de días (inclusive) entre dos YYYY-MM-DD */
+function normalizeYMD(raw?: string | null) {
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function isWithinRange(day: string, start: string, end: string) {
+  if (!day) return false;
+  return (!start || day >= start) && (!end || day <= end);
+}
+
+/** Diferencia de dias (inclusive) entre dos YYYY-MM-DD */
 function daysDiffInclusive(desde: string, hasta: string) {
   const a = new Date(desde + "T00:00:00");
   const b = new Date(hasta + "T00:00:00");
   const ms = b.getTime() - a.getTime();
-  // +1 para incluir ambos extremos cuando procede
   return Math.max(1, Math.floor(ms / (1000 * 60 * 60 * 24)) + 1);
 }
 
@@ -53,29 +69,46 @@ const FALLBACK_PALETTE = [
   "#059669", // verde teal
 ];
 
-/** Mapa de estado -> color (normalizamos a MAYÚSCULAS y sin tildes) */
+/** Mapa de estado -> color (normalizamos a MAYUSCULAS y sin tildes) */
 const ESTADO_COLORS: Record<string, string> = {
-  ASIGNADO: "#2563EB",         // azul
-  "EN PROGRESO": "#0EA5E9",    // celeste
-  FINALIZADO: "#16A34A",       // verde
-  REPROGRAMADO: "#CA8A04",     // mostaza
-  CANCELADO: "#DC2626",        // rojo
-  PENDIENTE: "#EA580C",        // naranja
-  "SIN ESTADO": "#6B7280",     // gris
+  ASIGNADO: "#2563EB",
+  "EN PROGRESO": "#0EA5E9",
+  FINALIZADO: "#16A34A",
+  REPROGRAMADO: "#CA8A04",
+  CANCELADO: "#DC2626",
+  PENDIENTE: "#EA580C",
+  "SIN ESTADO": "#6B7280",
 };
 
-/** Normaliza etiquetas para mapear color (mayúsculas + sin tildes) */
+const ESTADO_ID_MAP: Record<number, string> = {
+  1: "Pendiente",
+  2: "En progreso",
+  3: "Finalizado",
+  4: "Asignado",
+  5: "Reprogramado",
+  6: "Cancelado",
+};
+
+/** Normaliza etiquetas para mapear color (mayusculas + sin tildes) */
 function normalizeEstado(s: string) {
   return (s || "")
     .toUpperCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, ""); // quita tildes
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
-/** Obtiene color por estado con fallback cíclico */
+/** Obtiene color por estado con fallback ciclico */
 function getEstadoColor(estado: string, idx: number) {
   const key = normalizeEstado(estado);
   return ESTADO_COLORS[key] || FALLBACK_PALETTE[idx % FALLBACK_PALETTE.length];
+}
+
+function resolveEstado(rep: ApiReporte): string {
+  const raw = (rep.estado_servicio || "").toString().trim();
+  if (raw) return raw;
+  const id = typeof rep.id_estado_servicio === "number" ? rep.id_estado_servicio : Number(rep.id_estado_servicio);
+  if (!Number.isNaN(id) && ESTADO_ID_MAP[id]) return ESTADO_ID_MAP[id];
+  return "Sin estado";
 }
 
 export default function Widget4DistribucionEstados({
@@ -91,20 +124,38 @@ export default function Widget4DistribucionEstados({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Mantener prop para compatibilidad externa
+  void endpoint;
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const res = await api.get(endpoint, {
-          params: { fechaInicio: desde, fechaFin: hasta },
-        });
+
+        const res = await api.get<ApiReporte[]>("/reportes");
         if (!mounted) return;
-        const items: EstadoGlobal[] = Array.isArray(res.data) ? res.data : [];
+
+        const reportes: ApiReporte[] = Array.isArray(res.data) ? res.data : [];
+        const conteo = new Map<string, number>();
+
+        reportes.forEach((rep) => {
+          const fecha = normalizeYMD(rep.fecha_reporte);
+          if (!isWithinRange(fecha, desde, hasta)) return;
+          const estado = resolveEstado(rep);
+          const current = conteo.get(estado) || 0;
+          conteo.set(estado, current + 1);
+        });
+
+        const items: EstadoGlobal[] = Array.from(conteo.entries())
+          .map(([estado, cantidad]) => ({ estado, cantidad }))
+          .sort((a, b) => b.cantidad - a.cantidad);
+
         setData(items);
       } catch (e: any) {
-        setError(e?.response?.data?.mensaje || "No se pudo cargar la distribución de estados.");
+        if (!mounted) return;
+        setError(e?.response?.data?.mensaje || "No se pudo cargar la distribucion de estados.");
       } finally {
         if (mounted) setLoading(false);
       }
@@ -112,7 +163,7 @@ export default function Widget4DistribucionEstados({
     return () => {
       mounted = false;
     };
-  }, [endpoint, desde, hasta]);
+  }, [desde, hasta]);
 
   const total = useMemo(() => data.reduce((acc, it) => acc + (it.cantidad || 0), 0), [data]);
 
@@ -132,11 +183,11 @@ export default function Widget4DistribucionEstados({
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
       <h3 className="text-base font-semibold mb-2 text-gray-900 dark:text-gray-100">
-        Total reportes por estado — Rango {rangeDays} día(s)
+        Total reportes por estado - Rango {rangeDays} dia(s)
       </h3>
 
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Cargando…</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Cargando...</p>
       ) : error ? (
         <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
       ) : total === 0 ? (
@@ -171,8 +222,6 @@ export default function Widget4DistribucionEstados({
                   return [`${value} (${pct}%)`, name];
                 }}
               />
-
-              <Legend />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -180,3 +229,6 @@ export default function Widget4DistribucionEstados({
     </div>
   );
 }
+
+
+

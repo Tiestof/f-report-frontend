@@ -1,23 +1,17 @@
 /**
  * ============================================================
- * Widget 3 — Carga de reportes por técnico (por estado) [AUTO-FALLBACK]
+ * Widget 3 - Carga de reportes por tecnico (usa rut_responsable)
  * Ruta: src/pages/dashboard/Widget3ReportesPorDia.tsx
  *
- * Qué hace:
- *  - Consulta el endpoint indicado (o default) con rango [fechaInicio, fechaFin].
- *  - Si la respuesta NO contiene "estado", reintenta automáticamente con
- *    /dashboard/supervisor/carga-reportes-estado para obtener el desglose correcto.
- *  - Grafica barras apiladas horizontales por técnico con series por estado.
+ * Objetivo:
+ *  - Mostrar la carga de reportes por tecnico (solo usuarios tipo tecnico).
+ *  - Agrupar por estado utilizando la asignacion real (rut_responsable) dentro del rango indicado.
  *
- * Props (opcionales):
- *  - endpoint    : string  -> default '/dashboard/supervisor/carga-reportes-estado'
- *  - fechaInicio : string  -> default hoy-6 (YYYY-MM-DD)
- *  - fechaFin    : string  -> default hoy   (YYYY-MM-DD)
- *
- * Notas:
- *  - Espera filas con: { rut?: string, nombre: string, estado: string, total: number }
- *  - Si algún estado viene con tildes/minúsculas, se normaliza a una clave canónica
- *    para agrupar y colorear, conservando una etiqueta "display" amigable.
+ * Estrategia:
+ *  - Se consultan /usuarios y /reportes.
+ *  - Se filtran los usuarios cuyo id_tipo_usuario === 1 (tecnicos) y se construye un mapa rut -> nombre.
+ *  - Se filtran los reportes por rango de fecha y se asignan al tecnico utilizando rut_responsable (fallback a rut_usuario si tambien es tecnico).
+ *  - Se genera un registro por reporte con total = 1 y el estado correspondiente para alimentar el grafico apilado.
  * ============================================================
  */
 
@@ -38,16 +32,26 @@ import api from "../../services/api";
 type RowAPI = {
   rut?: string;
   nombre: string;
-  estado?: string;   // puede faltar si pegan al endpoint antiguo
+  estado?: string;
   total: number;
 };
 
-type TechAgg = {
-  rut?: string;
+type ApiUsuario = {
+  rut: string;
   nombre: string;
-  total: number;
-  // clave: estado CANÓNICO (normalizado). valor: cantidad
-  estados: Record<string, number>;
+  apellido_paterno?: string | null;
+  id_tipo_usuario: number | string;
+  activado?: number | null;
+};
+
+type ApiReporte = {
+  id_reporte: number;
+  fecha_reporte: string;
+  hora_inicio?: string | null;
+  rut_usuario?: string | null;
+  rut_responsable?: string | null;
+  estado_servicio?: string | null;
+  id_estado_servicio?: number | null;
 };
 
 /** ===== Utilidades de fecha ===== */
@@ -68,6 +72,26 @@ function addDaysISO(iso: string, delta: number): string {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeYMD(raw?: string | null): string {
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function normalizeRut(raw?: string | null): string {
+  return (raw || "").toString().replace(/[^0-9kK]/g, "").toUpperCase();
+}
+
+function isWithinRange(day: string, start: string, end: string): boolean {
+  if (!day) return false;
+  return (!start || day >= start) && (!end || day <= end);
+}
+
 /** ===== Paleta por estado ===== */
 const FALLBACK_PALETTE = [
   "#2563EB", // azul
@@ -80,7 +104,7 @@ const FALLBACK_PALETTE = [
   "#059669", // teal
 ];
 
-// Colores base por CLAVE CANÓNICA
+// Colores base por clave canonica
 const ESTADO_COLORS: Record<string, string> = {
   ASIGNADO: "#2563EB",
   "EN PROGRESO": "#0EA5E9",
@@ -91,7 +115,16 @@ const ESTADO_COLORS: Record<string, string> = {
   "SIN ESTADO": "#6B7280",
 };
 
-/** Normaliza a clave canónica: mayúsculas, sin tildes, trim */
+const ESTADO_ID_MAP: Record<number, string> = {
+  1: "Pendiente",
+  2: "En progreso",
+  3: "Finalizado",
+  4: "Asignado",
+  5: "Reprogramado",
+  6: "Cancelado",
+};
+
+/** Normaliza a clave canonica: mayusculas, sin tildes, trim */
 function toCanonKey(s?: string | null) {
   return (s || "")
     .trim()
@@ -102,6 +135,14 @@ function toCanonKey(s?: string | null) {
 
 function getEstadoColor(canonKey: string, idx: number) {
   return ESTADO_COLORS[canonKey] || FALLBACK_PALETTE[idx % FALLBACK_PALETTE.length];
+}
+
+function resolveEstado(rep: ApiReporte): string {
+  const raw = (rep.estado_servicio || "").toString().trim();
+  if (raw) return raw;
+  const id = typeof rep.id_estado_servicio === "number" ? rep.id_estado_servicio : Number(rep.id_estado_servicio);
+  if (!Number.isNaN(id) && ESTADO_ID_MAP[id]) return ESTADO_ID_MAP[id];
+  return "Sin estado";
 }
 
 /** ===== Props ===== */
@@ -116,7 +157,7 @@ export default function Widget3ReportesPorDia({
   fechaInicio,
   fechaFin,
 }: Props) {
-  // Rango por defecto: últimos 7 días
+  // Rango por defecto: ultimos 7 dias
   const hoy = todayISO();
   const desde = fechaInicio || addDaysISO(hoy, -6);
   const hasta = fechaFin || hoy;
@@ -125,68 +166,81 @@ export default function Widget3ReportesPorDia({
   const [err, setErr] = useState<string | null>(null);
   const [rows, setRows] = useState<RowAPI[]>([]);
 
-  // Para mostrar etiquetas "bonitas" por cada clave canónica
+  // Etiquetas "bonitas" por estado
   const [estadoDisplayMap, setEstadoDisplayMap] = useState<Record<string, string>>({});
-  const [usedEndpoint, setUsedEndpoint] = useState<string>(endpoint);
-  const ALT_ENDPOINT = "/dashboard/supervisor/carga-reportes-estado";
+  const [usedEndpoint, setUsedEndpoint] = useState<string>("local:/reportes");
 
-  /** ===== Fetch con auto-fallback ===== */
+  // Evitar lint por prop sin uso (se mantiene para compatibilidad externa)
+  void endpoint;
+
+  /** ===== Fetch basado en rut_responsable ===== */
   useEffect(() => {
     let mounted = true;
-
-    const fetchData = async (ep: string) => {
-      const { data } = await api.get<RowAPI[]>(ep, {
-        params: { fechaInicio: desde, fechaFin: hasta },
-      });
-      return Array.isArray(data) ? data : [];
-    };
 
     (async () => {
       try {
         setLoading(true);
         setErr(null);
 
-        // 1) Primer intento: endpoint indicado
-        let arr = await fetchData(endpoint);
-
-        // Detectar si la respuesta carece de "estado"
-        const hasEstado = arr.some((r) => typeof r?.estado === "string" && r.estado.trim() !== "");
-        console.debug("Widget3 first try sample:", arr.slice(0, 5));
-
-        // 2) Fallback automático si no hay estado y no estamos ya en el ALT_ENDPOINT
-        if (!hasEstado && endpoint !== ALT_ENDPOINT) {
-          const arr2 = await fetchData(ALT_ENDPOINT);
-          const hasEstado2 = arr2.some((r) => typeof r?.estado === "string" && r.estado.trim() !== "");
-          console.debug("Widget3 fallback sample:", arr2.slice(0, 5));
-
-          if (hasEstado2) {
-            arr = arr2;
-            setUsedEndpoint(ALT_ENDPOINT);
-          } else {
-            // Si tampoco trae estado, mostramos aviso contextual
-            setErr(
-              "El endpoint no entrega 'estado' en las filas. Verifica que el backend exponga /dashboard/supervisor/carga-reportes-estado y esté reiniciado."
-            );
-          }
-        } else {
-          setUsedEndpoint(endpoint);
-        }
+        const [resUsuarios, resReportes] = await Promise.all([
+          api.get<ApiUsuario[]>("/usuarios"),
+          api.get<ApiReporte[]>("/reportes"),
+        ]);
 
         if (!mounted) return;
 
-        // Construimos display map (solo para filas con estado)
+        const usuarios: ApiUsuario[] = Array.isArray(resUsuarios.data) ? resUsuarios.data : [];
+        const reportes: ApiReporte[] = Array.isArray(resReportes.data) ? resReportes.data : [];
+
+        const tecnicosMap = new Map<string, { rut: string; nombre: string }>();
+        usuarios.forEach((u) => {
+          const tipo = Number(u.id_tipo_usuario);
+          if (tipo !== 1) return;
+          const rut = normalizeRut(u.rut);
+          if (!rut) return;
+          const nombre = [u.nombre, u.apellido_paterno].filter(Boolean).join(" ").trim() || u.nombre || rut;
+          tecnicosMap.set(rut, { rut, nombre });
+        });
+
         const display: Record<string, string> = {};
-        for (const r of arr) {
-          if (!r?.estado) continue;
-          const canon = toCanonKey(r.estado) || "SIN ESTADO";
-          if (!display[canon]) display[canon] = r.estado.trim() || "Sin estado";
-        }
+        const rowsLocal: RowAPI[] = [];
+
+        reportes.forEach((rep) => {
+          const fecha = normalizeYMD(rep.fecha_reporte);
+          if (!isWithinRange(fecha, desde, hasta)) return;
+
+          const rutResp = normalizeRut(rep.rut_responsable);
+          const rutUser = normalizeRut(rep.rut_usuario);
+          let rutSeleccionado = "";
+
+          if (rutResp && tecnicosMap.has(rutResp)) {
+            rutSeleccionado = rutResp;
+          } else if (rutUser && tecnicosMap.has(rutUser)) {
+            rutSeleccionado = rutUser;
+          } else {
+            return; // ignorar registros que no pertenecen a tecnicos
+          }
+
+          const tecnico = tecnicosMap.get(rutSeleccionado)!;
+          const estado = resolveEstado(rep);
+          const canon = toCanonKey(estado) || "SIN ESTADO";
+
+          if (!display[canon]) display[canon] = estado.trim() || "Sin estado";
+
+          rowsLocal.push({
+            rut: tecnico.rut,
+            nombre: tecnico.nombre,
+            estado,
+            total: 1,
+          });
+        });
 
         setEstadoDisplayMap(display);
-        setRows(arr);
+        setRows(rowsLocal);
+        setUsedEndpoint("local:/reportes (rut_responsable)");
       } catch (e: any) {
         if (!mounted) return;
-        setErr(e?.response?.data?.mensaje || "No se pudo cargar la carga por técnico.");
+        setErr(e?.response?.data?.mensaje || "No se pudo cargar la carga por tecnico.");
       } finally {
         if (mounted) setLoading(false);
       }
@@ -195,20 +249,19 @@ export default function Widget3ReportesPorDia({
     return () => {
       mounted = false;
     };
-  }, [endpoint, desde, hasta]);
+  }, [desde, hasta]);
 
-  /** ===== Agregación por técnico y estado (con clave canónica) ===== */
+  /** ===== Agregacion por tecnico y estado (con clave canonica) ===== */
   const { techList, statesCanon } = useMemo(() => {
-    const map = new Map<string, TechAgg>(); // clave técnico (rut || nombre) -> agregación
-    const setStates = new Set<string>();    // claves canónicas presentes
+    const map = new Map<string, { rut?: string; nombre: string; total: number; estados: Record<string, number> }>();
+    const setStates = new Set<string>();
 
     for (const r of rows) {
       const rut = r.rut?.toString().trim();
-      const nombre = (r.nombre || rut || "Técnico").toString().trim();
+      const nombre = (r.nombre || rut || "Tecnico").toString().trim();
       const inc = Number(r.total) || 0;
 
-      const rawEstado = (r.estado || "").toString();
-      const canonEstado = toCanonKey(rawEstado) || "SIN ESTADO";
+      const canonEstado = toCanonKey(r.estado) || "SIN ESTADO";
 
       const keyTech = rut || nombre;
       if (!map.has(keyTech)) {
@@ -222,10 +275,8 @@ export default function Widget3ReportesPorDia({
       setStates.add(canonEstado);
     }
 
-    // Técnicos por total desc
     const techList = Array.from(map.values()).sort((a, b) => b.total - a.total);
 
-    // Orden de estados: conocidos primero, luego resto alfabético
     const knownOrder = Object.keys(ESTADO_COLORS);
     const present = Array.from(setStates);
 
@@ -255,7 +306,7 @@ export default function Widget3ReportesPorDia({
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
       <div className="mb-1 flex items-center justify-between gap-2">
         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-          Carga de reportes por técnico
+          Carga de reportes por tecnico
         </h3>
         <span className="text-[10px] text-gray-500 dark:text-gray-400">
           fuente: {usedEndpoint}
@@ -263,11 +314,11 @@ export default function Widget3ReportesPorDia({
       </div>
 
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-        Rango: {desde} → {hasta}
+        Rango: {desde} {'->'} {hasta}
       </p>
 
       {loading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Cargando…</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Cargando...</p>
       ) : err ? (
         <div className="text-sm rounded-md bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 p-2">
           {err}
@@ -316,7 +367,6 @@ export default function Widget3ReportesPorDia({
                 }}
               />
 
-              {/* Series: una Bar por estado CANÓNICO presente */}
               {statesCanon.map((canon, idx) => (
                 <Bar
                   key={canon}
@@ -335,3 +385,4 @@ export default function Widget3ReportesPorDia({
     </div>
   );
 }
+
