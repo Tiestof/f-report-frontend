@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import useAuthStore from '../../store/authStore';
 import api from '../../services/api';
+import { MapPinIcon } from '@heroicons/react/24/outline';
 
 // ====== DEBUG ======
 const DEBUG = (import.meta as any)?.env?.VITE_ENVIRONMENT !== 'production';
@@ -92,13 +93,19 @@ function hmToMinutes(hm?: string | null) {
 }
 
 function buildAddressText(r: ApiReporte) {
-  return [r.direccion, r.numero, r.sector, r.edificio, r.piso ? `Piso ${r.piso}` : undefined]
-    .filter(Boolean)
-    .join(', ');
+  const parts: string[] = [];
+  if (r.direccion) parts.push(r.direccion);
+  if (r.numero) parts.push(`número: ${r.numero}`);
+  if (r.sector) parts.push(`Sector: ${r.sector}`);
+  if (r.edificio) parts.push(`Edificio: ${r.edificio}`);
+  if (r.piso) parts.push(`Piso: ${r.piso}`);
+  return parts.join(', ');
 }
 function buildMapsLink(r: ApiReporte) {
-  const q = encodeURIComponent(buildAddressText(r));
-  return q ? `https://www.google.com/maps/search/?api=1&query=${q}` : '#';
+  const direccion = (r.direccion || '').toString().trim();
+  const numero = (r.numero || '').toString().trim();
+  const query = [direccion, numero].filter(Boolean).join(' ');
+  return query ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}` : '#';
 }
 
 export default function TecnicoDashboard() {
@@ -293,8 +300,15 @@ export default function TecnicoDashboard() {
                       {(r.tipo_servicio || (r.id_tipo_servicio ? `Servicio #${r.id_tipo_servicio}` : 'Servicio'))} - {buildAddressText(r)}
                     </div>
                   </div>
-                  <a className="text-sm underline text-blue-600 dark:text-blue-400 shrink-0" href={buildMapsLink(r)} target="_blank" rel="noreferrer">
-                    Maps
+                  <a
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400 px-3 py-1 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-500/10 transition"
+                    href={buildMapsLink(r)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Abrir en Maps"
+                  >
+                    <MapPinIcon className="h-4 w-4" />
+                    <span>Abrir</span>
                   </a>
                 </li>
               ))}
@@ -351,8 +365,15 @@ export default function TecnicoDashboard() {
             <div className="md:col-span-2">
               <div className="text-xs uppercase text-gray-500 dark:text-gray-400">Direccion</div>
               <div className="font-medium text-gray-900 dark:text-gray-100">{addr || '--'}</div>
-              <a className="inline-block mt-2 underline text-blue-600 dark:text-blue-400" href={mapsUrl} target="_blank" rel="noreferrer">
-                Abrir en Maps
+              <a
+                className="mt-2 inline-flex items-center gap-2 self-start rounded-md border border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400 px-3 py-1 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-500/10 transition"
+                href={mapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Abrir en Maps"
+              >
+                <MapPinIcon className="h-4 w-4" />
+                <span>Abrir en Maps</span>
               </a>
             </div>
           </div>
