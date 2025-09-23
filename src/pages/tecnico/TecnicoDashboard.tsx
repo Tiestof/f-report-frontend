@@ -361,7 +361,7 @@ export default function TecnicoDashboard() {
 
       {/* Estados últimos 31 días */}
       <div className="rounded-2xl p-5 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm mt-4">
-        <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-gray-100">Estados (últimos 31 días como responsable)</h2>
+        <h2 className="text-lg font-bold mb-3 text-gray-900 dark:text-gray-100">Estados (últimos 31 días)</h2>
         {estados31d.arr.length === 0 ? (
           <div className="text-gray-600 dark:text-gray-300">No hay datos para el rango.</div>
         ) : (
