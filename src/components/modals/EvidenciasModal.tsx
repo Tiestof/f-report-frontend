@@ -5,13 +5,13 @@
  *   - Mostrar Tipos (activados) desde catalogosService (/tipoevidencias).
  *   - Listar evidencias existentes: GET /evidencias/reporte/:id.
  *   - Subir evidencias: POST /evidencias/upload (multipart).
- *     • Firma Digital: pad → JPG B/N → file + firmante.
+ *     • Firma Digital: pad → JPG B/N con FONDO BLANCO → file + firmante.
  *     • Otros tipos: file + metadatos (modelo, serie, ip, mac, nombre_maquina).
  *   - Agregar múltiples evidencias sin cerrar el modal.
  *   - Loading inicial antes de renderizar.
  * Notas:
  *   - Montaje condicional v14: {selected?.id_reporte && showEvidencias && <EvidenciasModal ... />}
- *   - No se pide "descripción" en el modelo actual; se omitió del form.
+ *   - Miniatura automática para imágenes (jpg/png/webp); PDFs quedan como enlace.
  * ============================================================
  */
 
@@ -64,7 +64,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     if (!tiposQ.isLoading && !evidQ.isLoading) setReady(true);
   }, [tiposQ.isLoading, evidQ.isLoading]);
 
-  // 3) Form (sin setValue para evitar warning 6133)
+  // 3) Form
   const {
     register,
     watch,
@@ -97,7 +97,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
   const esImagen = descripcionTipo.includes('imagen') || descripcionTipo.includes('foto');
   const accept = esFirma ? undefined : esImagen ? 'image/*' : '.pdf,image/*';
 
-  // 4) Firma: canvas + blanco/negro → JPG
+  // 4) Firma: canvas + BLANCO/NEGRO → JPG con fondo blanco garantizado
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
 
@@ -112,8 +112,8 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
       c.height = Math.floor(cssH * dpr);
       const ctx = c.getContext('2d');
       if (ctx) {
+        // ajustar transform y pintar fondo blanco
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        // Fondo blanco
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, cssW, cssH);
       }
@@ -125,7 +125,13 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
 
   function startDraw(e: React.MouseEvent<HTMLCanvasElement>) {
     drawingRef.current = true;
-    draw(e);
+    const c = canvasRef.current;
+    const ctx = c?.getContext('2d');
+    if (c && ctx) {
+      const rect = c.getBoundingClientRect();
+      ctx.beginPath();
+      ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    }
   }
   function endDraw() {
     drawingRef.current = false;
@@ -144,11 +150,9 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     ctx.strokeStyle = '#000000'; // negro
     ctx.lineTo(x, y);
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
   }
 
-  // Toques (mobile)
+  // Soporte táctil (móvil)
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
@@ -194,39 +198,76 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     if (!c) return;
     const ctx = c.getContext('2d');
     if (!ctx) return;
-    const w = c.width, h = c.height;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    // fondo blanco otra vez
     const dpr = window.devicePixelRatio || 1;
+    const cssW = c.clientWidth || 600;
+    const cssH = 220;
+    // reset y fondo blanco
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, w / dpr, h / dpr);
+    ctx.fillRect(0, 0, cssW, cssH);
   }
 
-  /** Convierte canvas a JPG en B/N (grayscale) y devuelve File */
-  function canvasToGrayscaleJpegFile(cnv: HTMLCanvasElement, filename = 'firma.jpg', quality = 0.92): Promise<File> {
+  /** Convierte el canvas a JPG en blanco/negro con fondo blanco garantizado. */
+  function canvasToGrayscaleJpegFile(
+    source: HTMLCanvasElement,
+    filename = 'firma.jpg',
+    quality = 0.92
+  ): Promise<File> {
+    // Trabajamos en offscreen para pintar FONDO BLANCO y evitar negro por transparencia.
+    const w = source.width;
+    const h = source.height;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const octx = off.getContext('2d');
+    if (!octx) return Promise.reject(new Error('Canvas context no disponible'));
+
+    // Fondo blanco y dibujar el canvas original encima
+    octx.fillStyle = '#ffffff';
+    octx.fillRect(0, 0, w, h);
+    octx.drawImage(source, 0, 0);
+
     // Pasada a B/N
-    const ctx = cnv.getContext('2d');
-    if (!ctx) return Promise.reject(new Error('Canvas context no disponible'));
-    const w = cnv.width;
-    const h = cnv.height;
-    const imgData = ctx.getImageData(0, 0, w, h);
+    const imgData = octx.getImageData(0, 0, w, h);
     const d = imgData.data;
     for (let i = 0; i < d.length; i += 4) {
       const r = d[i], g = d[i + 1], b = d[i + 2];
-      const y = 0.299 * r + 0.587 * g + 0.114 * b; // luminancia
+      const y = 0.299 * r + 0.587 * g + 0.114 * b;
       d[i] = d[i + 1] = d[i + 2] = y;
     }
-    ctx.putImageData(imgData, 0, 0);
+    octx.putImageData(imgData, 0, 0);
 
+    // toBlob (fallback a dataURL si fuera necesario)
     return new Promise<File>((resolve, reject) => {
-      cnv.toBlob((blob) => {
-        if (!blob) return reject(new Error('No se pudo crear blob JPG'));
-        const file = new File([blob], filename, { type: 'image/jpeg', lastModified: Date.now() });
-        resolve(file);
-      }, 'image/jpeg', quality);
+      off.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(new File([blob], filename, { type: 'image/jpeg', lastModified: Date.now() }));
+          } else {
+            try {
+              const dataURL = off.toDataURL('image/jpeg', quality);
+              const file = dataURLToFile(dataURL, filename);
+              resolve(file);
+            } catch (e) {
+              reject(new Error('No se pudo crear blob JPG'));
+            }
+          }
+        },
+        'image/jpeg',
+        quality
+      );
     });
+  }
+
+  function dataURLToFile(dataURL: string, filename: string): File {
+    const arr = dataURL.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new File([u8arr], filename, { type: mime });
   }
 
   // 5) Mutations
@@ -247,8 +288,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
         archivo: new DataTransfer().files,
       });
       clearCanvas();
-      // no cierro el modal (agregar múltiples)
-      onSaved?.(); // compatibilidad: si el padre quiere refrescar contadores
+      onSaved?.(); // compatibilidad (p.ej. refrescar contadores en la tabla)
     },
     onError: (e: any) => {
       console.debug('[EvidenciasModal] upload error', e);
@@ -266,7 +306,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     if (esFirma) {
       const c = canvasRef.current;
       if (!c) { alert('Canvas no disponible'); return; }
-      // firma como JPG B/N
+      // Firma como JPG B/N con FONDO BLANCO
       const file = await canvasToGrayscaleJpegFile(c, 'firma.jpg', 0.92);
       await mCreate.mutateAsync({
         id_reporte: idReporte,
@@ -319,6 +359,10 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     label: t.descripcion_tipo_evidencia,
   }));
 
+  // Helper miniatura
+  const isImageUrl = (url: string | null | undefined) =>
+    !!url && /\.(png|jpe?g|webp)$/i.test(url);
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2 md:p-4" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="w-full max-w-3xl rounded-2xl bg-white p-3 md:p-4 shadow-xl dark:bg-slate-900" onClick={stopClose}>
@@ -355,7 +399,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
                     onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw} />
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button type="button" onClick={clearCanvas} className="rounded-lg bg-slate-100 px-3 py-1 text-sm hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700">Limpiar</button>
-                    <span className="text-xs text-slate-500">Se guardará como JPG (blanco y negro).</span>
+                    <span className="text-xs text-slate-500">Se guardará como JPG (blanco y negro, fondo blanco).</span>
                   </div>
                 </div>
               </div>
@@ -368,7 +412,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
               <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">{esImagen ? 'Imagen' : 'Archivo (PDF o imagen)'}</label>
                 <input type="file" accept={accept} {...register('archivo')} className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 p-2 text-sm dark:border-slate-700" />
-                <p className="mt-1 text-xs text-slate-500">Adjunta el archivo que será almacenado con la nomenclatura EVI_&lt;reporte&gt;_&lt;tipo&gt;_&lt;fecha&gt;.</p>
+                <p className="mt-1 text-xs text-slate-500">Adjunta el archivo que será almacenado como EVI_&lt;reporte&gt;_&lt;tipo&gt;_&lt;fecha&gt;.</p>
               </div>
 
               <div className="md:col-span-3 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -459,10 +503,25 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
                 </div>
 
                 <div className="space-y-2">
-                  <a href={ev.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline">
-                    Ver archivo
-                    <svg width="16" height="16" viewBox="0 0 24 24" className="inline-block"><path fill="currentColor" d="M14 3l7 7l-1.41 1.41L15 7.83V20h-2V7.83l-4.59 4.58L7 10z"/></svg>
-                  </a>
+                  {isImageUrl(ev.url) ? (
+                    <img
+                      src={ev.url!}
+                      alt={`Evidencia ${ev.id_evidencia}`}
+                      className="max-h-36 w-full rounded-lg border border-slate-200 object-contain dark:border-slate-800"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <a
+                      href={ev.url || '#'}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                    >
+                      Ver archivo
+                      <svg width="16" height="16" viewBox="0 0 24 24" className="inline-block"><path fill="currentColor" d="M14 3l7 7l-1.41 1.41L15 7.83V20h-2V7.83l-4.59 4.58L7 10z"/></svg>
+                    </a>
+                  )}
+
                   <div className="text-xs text-slate-500">
                     {ev.modelo ? <>Modelo: <b>{ev.modelo}</b> · </> : null}
                     {ev.numero_serie ? <>Serie: <b>{ev.numero_serie}</b> · </> : null}
