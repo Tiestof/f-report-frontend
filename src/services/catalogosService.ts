@@ -162,7 +162,18 @@ export async function getClientesMap(): Promise<ClienteMap> {
  */
 export async function getTiposEvidencia(): Promise<TipoEvidencia[]> {
   const { data } = await api.get('/tipoevidencias');
-  return data;
+  const arr = Array.isArray(data) ? data : [];
+  return arr
+    .map((item: any): TipoEvidencia | null => {
+      const id = pickNumber(item, ['id_tipo_evidencia', 'id', 'codigo', 'value']);
+      const descripcion = pickText(item, ['descripcion_tipo_evidencia', 'descripcion', 'nombre', 'label', 'tipo_evidencia']);
+      const activado = pickNumber(item, ['activado', 'estado', 'activo', 'habilitado']);
+      if (!isValidId(id) || !descripcion) return null;
+      if (activado === 0) return null;
+      return { id_tipo_evidencia: id, descripcion_tipo_evidencia: descripcion, activado: activado ?? 1 };
+    })
+    .filter((x): x is TipoEvidencia => Boolean(x))
+    .sort((a, b) => a.descripcion_tipo_evidencia.localeCompare(b.descripcion_tipo_evidencia));
 }
 
 /**
@@ -173,5 +184,3 @@ export async function getTiposGasto(): Promise<TipoGasto[]> {
   const { data } = await api.get('/tipogastos');
   return data;
 }
-
-
