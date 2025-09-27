@@ -5,7 +5,7 @@
  *   - Capa HTTP para Evidencias (listar por reporte, subir, eliminar).
  *   - Compatibilidad con imports antiguos de V14 mediante ALIAS.
  *
- * Endpoints backend (API v14):
+ * Endpoints backend:
  *   - GET    /api/evidencias/reporte/:id_reporte
  *   - POST   /api/evidencias/upload              (multipart, campo 'file')
  *   - DELETE /api/evidencias/:id
@@ -48,7 +48,6 @@ export type EvidenciaCreateUploadInput = {
 /** GET /api/evidencias/reporte/:id_reporte */
 export async function getEvidenciasByReporte(id_reporte: number): Promise<EvidenciaListadoItem[]> {
   const { data } = await api.get(`/evidencias/reporte/${id_reporte}`);
-  // Normalizamos a array para evitar crashes en el caller
   return (Array.isArray(data) ? data : []) as EvidenciaListadoItem[];
 }
 
@@ -56,7 +55,7 @@ export async function getEvidenciasByReporte(id_reporte: number): Promise<Eviden
 export async function uploadEvidencia(input: EvidenciaCreateUploadInput): Promise<{ id: number; url: string }> {
   const fd = new FormData();
 
-  // IMPORTANTE: estos campos van ANTES del file para que Multer nombre bien el archivo
+  // ⚠️ Campos ANTES del archivo (Multer)
   fd.append('id_reporte', String(input.id_reporte));
   fd.append('id_tipo_evidencia', String(input.id_tipo_evidencia));
 
