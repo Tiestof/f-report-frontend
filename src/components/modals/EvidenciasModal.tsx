@@ -84,6 +84,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
       archivo: new DataTransfer().files,
     },
   });
+  
 
   const idTipo = watch('id_tipo_evidencia');
 
