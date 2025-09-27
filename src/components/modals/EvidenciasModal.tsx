@@ -70,7 +70,6 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     watch,
     handleSubmit,
     reset,
-    setValue,
     formState: { errors },
   } = useForm<FormValues>({
     defaultValues: {
