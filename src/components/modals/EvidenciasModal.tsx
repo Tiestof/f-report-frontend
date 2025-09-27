@@ -64,7 +64,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     if (!tiposQ.isLoading && !evidQ.isLoading) setReady(true);
   }, [tiposQ.isLoading, evidQ.isLoading]);
 
-  // 3) Form
+  // 3) Form (sin setValue para evitar warning 6133)
   const {
     register,
     watch,
@@ -84,7 +84,6 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
       archivo: new DataTransfer().files,
     },
   });
-  
 
   const idTipo = watch('id_tipo_evidencia');
 
@@ -249,7 +248,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
       });
       clearCanvas();
       // no cierro el modal (agregar múltiples)
-      onSaved?.(); // por compatibilidad: si el padre quiere refrescar contadores
+      onSaved?.(); // compatibilidad: si el padre quiere refrescar contadores
     },
     onError: (e: any) => {
       console.debug('[EvidenciasModal] upload error', e);
