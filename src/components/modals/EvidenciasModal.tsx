@@ -293,8 +293,8 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
                     ref={sigRef}
                     height={CANVAS_CSS_HEIGHT}
                     className={disabled ? 'opacity-60 pointer-events-none' : ''}
-                    debug={true}                 // 👈 activa logs en consola
-                    requireTapToActivate={true}  // 👈 overlay “tocar para activar”
+                    debug={false}                 //  activa logs en consola
+                    requireTapToActivate={false}  //  overlay “tocar para activar”
                     // lockScrollWhileDrawing: por defecto true en iOS; puedes forzar true/false si quieres
                   />
                   <p className="mt-2 text-xs text-slate-500">Se guardará como JPG (blanco y negro, fondo blanco).</p>
