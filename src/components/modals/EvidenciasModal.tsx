@@ -2,19 +2,21 @@
  * ============================================================
  * Archivo: src/components/modals/EvidenciasModal.tsx
  * Propósito:
- *   - Tipos activos desde /tipoevidencias.
- *   - Listar evidencias /evidencias/reporte/:id (miniaturas correctas).
- *   - Subir:
- *       • Firma: pad → JPG B/N (fondo blanco) + firmante.
- *       • Otros: archivo (imagen/PDF) + metadatos.
- *   - Full-screen amigable en móvil (sheet con scroll).
- *   - Pad calibrado (Pointer Events + DPR + touchAction:none).
- *   - Eliminar con confirmación (papelera roja).
+ *  - Tipos activos desde /tipoevidencias.
+ *  - Listar evidencias /evidencias/reporte/:id (miniaturas correctas).
+ *  - Subir:
+ *      • Firma: SignaturePad → JPG B/N (fondo blanco) + firmante.
+ *      • Otros: archivo (imagen/PDF) + metadatos.
+ *  - Full-screen amigable en móvil:
+ *      • Alturas con dvh/svh, overscroll contain y scroll suave.
+ *  - Eliminar con confirmación (papelera roja).
+ * Notas:
+ *  - Compatible con endpoint de subida multipart del backend.
  * ============================================================
  */
 
 import type { FC, MouseEvent } from 'react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -22,6 +24,9 @@ import { getEvidenciasByReporte, uploadEvidencia, deleteEvidencia } from '../../
 import { getTiposEvidencia as getTiposEvidenciaCatalogo } from '../../services/catalogosService';
 import type { EvidenciaListadoItem } from '../../types/evidencias';
 import { resolveMediaUrl, isImageUrl } from '../../utils/urlResolver';
+
+import SignaturePad from '../ui/SignaturePad';
+import type { SignaturePadHandle } from '../ui/SignaturePad';
 
 type Props = { onClose: () => void; onSaved?: () => void; idReporte: number };
 
@@ -89,111 +94,44 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
   const esImagen = descTipo.includes('imagen') || descTipo.includes('foto');
   const accept = esFirma ? undefined : esImagen ? 'image/*' : '.pdf,image/*';
 
-  // 4) Pad de firma (Pointer Events + DPR + touchAction:none)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-  const drawingRef = useRef(false);
+  // 4) SignaturePad (robusto, forwardRef)
+  const sigRef = useRef<SignaturePadHandle | null>(null);
 
-  function setupCanvas() {
-    const c = canvasRef.current;
-    if (!c) return;
-    const parent = c.parentElement;
-    const cssW = Math.max(280, parent?.clientWidth || c.clientWidth || 600);
-    const cssH = CANVAS_CSS_HEIGHT;
-    const dpr = window.devicePixelRatio || 1;
+  /** Canvas PNG → JPG B/N con fondo blanco */
+  async function dataURLToGrayscaleJpegFile(pngDataURL: string, name = 'firma.jpg', quality = 0.92): Promise<File> {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.crossOrigin = 'anonymous';
+      im.src = pngDataURL;
+    });
 
-    c.width = Math.floor(cssW * dpr);
-    c.height = Math.floor(cssH * dpr);
-    c.style.width = `${cssW}px`;
-    c.style.height = `${cssH}px`;
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
 
-    const ctx = c.getContext('2d');
-    ctxRef.current = ctx;
-    if (!ctx) return;
-
-    // Reset transform y fondo blanco
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, c.width, c.height);
-
-    // Trazo negro con grosor proporcional
-    ctx.lineWidth = Math.max(2, 2 * dpr);
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = '#000000';
-  }
-
-  useEffect(() => {
-    setupCanvas();
-    const onResize = () => setupCanvas();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  function coords(e: React.PointerEvent<HTMLCanvasElement>) {
-    const c = canvasRef.current!;
-    const r = c.getBoundingClientRect();
-    const scaleX = c.width / r.width;
-    const scaleY = c.height / r.height;
-    return {
-      x: (e.clientX - r.left) * scaleX,
-      y: (e.clientY - r.top) * scaleY,
-    };
-  }
-
-  function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    e.preventDefault();
-    const c = canvasRef.current, ctx = ctxRef.current;
-    if (!c || !ctx) return;
-    drawingRef.current = true;
-    c.setPointerCapture?.(e.pointerId);
-    const { x, y } = coords(e);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  }
-
-  function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawingRef.current) return;
-    e.preventDefault();
-    const ctx = ctxRef.current; if (!ctx) return;
-    const { x, y } = coords(e);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  }
-
-  function onPointerUp(e?: React.PointerEvent<HTMLCanvasElement>) {
-    if (e) e.preventDefault();
-    drawingRef.current = false;
-    ctxRef.current?.beginPath();
-  }
-
-  function clearCanvas() {
-    const c = canvasRef.current, ctx = ctxRef.current;
-    if (!c || !ctx) return;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, c.width, c.height);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, c.width, c.height);
-  }
-
-  /** Canvas → JPG B/N con fondo blanco */
-  function canvasToGrayscaleJpegFile(source: HTMLCanvasElement, name = 'firma.jpg', quality = 0.92): Promise<File> {
-    const w = source.width, h = source.height;
-    const off = document.createElement('canvas'); off.width = w; off.height = h;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
     const octx = off.getContext('2d')!;
-    octx.fillStyle = '#ffffff'; octx.fillRect(0, 0, w, h);
-    octx.drawImage(source, 0, 0);
-    const img = octx.getImageData(0, 0, w, h), d = img.data;
+    // Fondo blanco
+    octx.fillStyle = '#ffffff';
+    octx.fillRect(0, 0, w, h);
+    octx.drawImage(img, 0, 0);
+
+    // Grises
+    const imageData = octx.getImageData(0, 0, w, h);
+    const d = imageData.data;
     for (let i = 0; i < d.length; i += 4) {
       const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
       d[i] = d[i + 1] = d[i + 2] = y;
     }
-    octx.putImageData(img, 0, 0);
-    return new Promise<File>((resolve, reject) => {
-      off.toBlob((blob) => {
-        if (blob) resolve(new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() }));
-        else reject(new Error('No Blob JPG'));
-      }, 'image/jpeg', quality);
+    octx.putImageData(imageData, 0, 0);
+
+    const blob: Blob = await new Promise((resolve, reject) => {
+      off.toBlob((b) => (b ? resolve(b) : reject(new Error('No Blob JPG'))), 'image/jpeg', quality);
     });
+    return new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() });
   }
 
   // 5) Mutations
@@ -212,7 +150,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
         nombre_maquina: '',
         archivo: new DataTransfer().files,
       });
-      clearCanvas();
+      sigRef.current?.clear();
       onSaved?.();
     },
     onError: (e: any) => {
@@ -233,8 +171,9 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     if (!v.id_tipo_evidencia) { alert('Selecciona un tipo de evidencia.'); return; }
 
     if (esFirma) {
-      const c = canvasRef.current; if (!c) { alert('Pad no disponible.'); return; }
-      const file = await canvasToGrayscaleJpegFile(c, 'firma.jpg', 0.92);
+      const dataUrl = sigRef.current?.toDataURL('image/png');
+      if (!dataUrl) { alert('Pad no disponible.'); return; }
+      const file = await dataURLToGrayscaleJpegFile(dataUrl, 'firma.jpg', 0.92);
       await mCreate.mutateAsync({
         id_reporte: idReporte,
         id_tipo_evidencia: Number(v.id_tipo_evidencia),
@@ -263,7 +202,10 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
   // 7) Loading inicial (skeleton)
   if (!ready) {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2" role="dialog" aria-modal="true" onClick={onClose}>
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2"
+        role="dialog" aria-modal="true" onClick={onClose}
+      >
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
           <div className="animate-pulse space-y-3">
             <div className="h-5 w-1/2 rounded bg-slate-200 dark:bg-slate-700" />
@@ -283,16 +225,21 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
   const tiposOptions = (tiposQ.data ?? []).map((t) => ({ value: t.id_tipo_evidencia, label: t.descripcion_tipo_evidencia }));
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50" role="dialog" aria-modal="true" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50"
+      role="dialog" aria-modal="true" onClick={onClose}
+    >
       <div
         onClick={stopClose}
         className="
           w-full md:max-w-4xl bg-white dark:bg-slate-900 shadow-xl
           rounded-t-2xl md:rounded-2xl
-          h-[92vh] md:h-auto md:max-h-[90vh]
-          overflow-y-auto
+          h-[90svh] md:h-auto md:max-h-[90dvh]
+          max-h-[100dvh]
+          overflow-y-auto overscroll-contain
           p-4 md:p-5
         "
+        style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {/* Header */}
         <div className="mb-3 md:mb-4 flex items-center justify-between sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur z-10 py-1">
@@ -329,30 +276,18 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
             <>
               <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Nombre del firmante</label>
-                <input type="text" {...register('firmante')} placeholder="Ej: Juan Pérez" className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" />
+                <input
+                  type="text"
+                  {...register('firmante')}
+                  placeholder="Ej: Juan Pérez"
+                  className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+                />
               </div>
 
               <div className="md:col-span-3">
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Firma digital (dibuje en el recuadro)</label>
-                <div className="rounded-xl border border-slate-300 p-2 dark:border-slate-700">
-                  <canvas
-                    ref={canvasRef}
-                    className="w-full"
-                    style={{ height: CANVAS_CSS_HEIGHT, touchAction: 'none' }}
-                    onPointerDown={onPointerDown}
-                    onPointerMove={onPointerMove}
-                    onPointerUp={onPointerUp}
-                    onPointerCancel={onPointerUp}
-                    onPointerLeave={onPointerUp}
-                    onContextMenu={(e) => e.preventDefault()}
-                  />
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button type="button" onClick={clearCanvas} className="rounded-lg bg-slate-100 px-3 py-1 text-sm hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700">
-                      Limpiar
-                    </button>
-                    <span className="text-xs text-slate-500">Se guardará como JPG (blanco y negro, fondo blanco).</span>
-                  </div>
-                </div>
+                <SignaturePad ref={sigRef} height={CANVAS_CSS_HEIGHT} />
+                <p className="mt-2 text-xs text-slate-500">Se guardará como JPG (blanco y negro, fondo blanco).</p>
               </div>
             </>
           )}
@@ -362,7 +297,12 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
             <>
               <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">{esImagen ? 'Imagen' : 'Archivo (PDF o imagen)'}</label>
-                <input type="file" accept={accept} {...register('archivo')} className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 p-2 text-sm dark:border-slate-700" />
+                <input
+                  type="file"
+                  accept={accept}
+                  {...register('archivo')}
+                  className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 p-2 text-sm dark:border-slate-700"
+                />
                 <p className="mt-1 text-xs text-slate-500">Se guardará como EVI_&lt;reporte&gt;_&lt;tipo&gt;_&lt;fecha&gt;.*</p>
               </div>
 
@@ -392,7 +332,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
                   nombre_maquina: '',
                   archivo: new DataTransfer().files,
                 });
-                clearCanvas();
+                sigRef.current?.clear();
               }}
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
             >

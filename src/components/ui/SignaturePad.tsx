@@ -1,28 +1,64 @@
 /**
  * ============================================================
  * Archivo: src/components/ui/SignaturePad.tsx
- * Componente: SignaturePad (Pointer Events + DPR)
- * Descripción: Canvas para firma digital. Exporta PNG DataURL.
+ * Componente: SignaturePad (robusto y cross-browser)
+ * Propósito:
+ *  - Canvas de firma con soporte Pointer Events y fallbacks mouse/touch.
+ *  - Escala por DPR; trazo proporcional; fondo blanco.
+ *  - Evita setPointerCapture() (problemas en Chrome Android dentro de scroll).
+ *  - Expone clear() y toDataURL() vía forwardRef.
+ * Notas:
+ *  - Se eliminan los preventDefault() en touch* para evitar el warning
+ *    "Unable to preventDefault inside passive event listener".
+ *  - Mantenemos style { touchAction:'none' } para bloquear el scroll durante la firma.
  * ============================================================
  */
 
-import { useEffect, useRef } from 'react';
+import React, {
+  useEffect,
+  useRef,
+  useImperativeHandle,
+  forwardRef,
+  useCallback,
+} from 'react';
 
-type Props = {
-  height?: number; // CSS height (el ancho se ajusta al contenedor)
-  onChange?: (dataUrl: string) => void;
+export type SignaturePadHandle = {
+  clear: () => void;
+  toDataURL: (type?: string, quality?: number) => string;
 };
 
-export default function SignaturePad({ height = 220, onChange }: Props) {
+type Props = {
+  /** Alto CSS. El ancho se ajusta al contenedor. */
+  height?: number;
+  /** Ancho mínimo CSS para asegurar área cómoda. */
+  minWidth?: number;
+  /** Callback opcional cuando cambia la firma (devuelve DataURL PNG). */
+  onChange?: (dataUrl: string) => void;
+  /** Grosor base del trazo (se escala con DPR). */
+  baseLineWidth?: number;
+};
+
+const SignaturePad = forwardRef<SignaturePadHandle, Props>(function SignaturePad(
+  {
+    height = 220,
+    minWidth = 280,
+    onChange,
+    baseLineWidth = 2,
+  }: Props,
+  ref
+) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-  const drawingRef = useRef(false);
 
-  function setupCanvas() {
+  const drawingRef = useRef(false);
+  const activePointerId = useRef<number | null>(null);
+
+  const setupCanvas = useCallback(() => {
     const c = canvasRef.current;
     if (!c) return;
+
     const parent = c.parentElement;
-    const cssW = Math.max(280, parent?.clientWidth || c.clientWidth || 600);
+    const cssW = Math.max(minWidth, parent?.clientWidth || c.clientWidth || 600);
     const cssH = height;
     const dpr = window.devicePixelRatio || 1;
 
@@ -30,94 +66,188 @@ export default function SignaturePad({ height = 220, onChange }: Props) {
     c.height = Math.floor(cssH * dpr);
     c.style.width = `${cssW}px`;
     c.style.height = `${cssH}px`;
+    c.style.display = 'block'; // evitar glitches de inline-canvas
 
     const ctx = c.getContext('2d');
     ctxRef.current = ctx;
     if (!ctx) return;
 
+    // Fondo blanco
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, c.width, c.height);
 
-    ctx.lineWidth = Math.max(2, 2 * dpr);
+    // Trazo negro con grosor proporcional al DPR
+    ctx.lineWidth = Math.max(baseLineWidth, baseLineWidth * dpr);
     ctx.lineCap = 'round';
     ctx.strokeStyle = '#111';
-  }
+  }, [height, minWidth, baseLineWidth]);
 
   useEffect(() => {
     setupCanvas();
     const onResize = () => setupCanvas();
-    window.addEventListener('resize', onResize);
+    window.addEventListener('resize', onResize, { passive: true });
     return () => window.removeEventListener('resize', onResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setupCanvas]);
 
-  function coords(e: React.PointerEvent<HTMLCanvasElement>) {
+  const getCoords = (clientX: number, clientY: number) => {
     const c = canvasRef.current!;
     const r = c.getBoundingClientRect();
     const scaleX = c.width / r.width;
     const scaleY = c.height / r.height;
     return {
-      x: (e.clientX - r.left) * scaleX,
-      y: (e.clientY - r.top) * scaleY,
+      x: (clientX - r.left) * scaleX,
+      y: (clientY - r.top) * scaleY,
     };
-  }
+  };
 
-  function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+  // ---------- Pointer Events ----------
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const c = canvasRef.current, ctx = ctxRef.current;
+    const c = canvasRef.current;
+    const ctx = ctxRef.current;
     if (!c || !ctx) return;
+
     drawingRef.current = true;
-    c.setPointerCapture?.(e.pointerId);
-    const { x, y } = coords(e);
+    activePointerId.current = e.pointerId;
+
+    const { x, y } = getCoords(e.clientX, e.clientY);
     ctx.beginPath();
     ctx.moveTo(x, y);
-  }
+  };
 
-  function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawingRef.current) return;
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current || activePointerId.current !== e.pointerId) return;
     e.preventDefault();
-    const ctx = ctxRef.current; if (!ctx) return;
-    const { x, y } = coords(e);
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    const { x, y } = getCoords(e.clientX, e.clientY);
     ctx.lineTo(x, y);
     ctx.stroke();
-  }
+  };
 
-  function onPointerUp(e?: React.PointerEvent<HTMLCanvasElement>) {
-    if (e) e.preventDefault();
+  const finishStroke = () => {
     drawingRef.current = false;
+    activePointerId.current = null;
     ctxRef.current?.beginPath();
-    if (onChange && canvasRef.current) onChange(canvasRef.current.toDataURL('image/png'));
-  }
+    if (onChange && canvasRef.current) {
+      onChange(canvasRef.current.toDataURL('image/png'));
+    }
+  };
 
-  function clear() {
-    const c = canvasRef.current, ctx = ctxRef.current;
+  const onPointerUp = (e?: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e) e.preventDefault();
+    finishStroke();
+  };
+
+  const onPointerCancel = (e?: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e) e.preventDefault();
+    finishStroke();
+  };
+
+  // ---------- Fallback: Mouse ----------
+  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if ((e.buttons & 1) === 0) return; // solo botón primario
+    onPointerDown((e as unknown) as React.PointerEvent<HTMLCanvasElement>);
+  };
+  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    onPointerMove((e as unknown) as React.PointerEvent<HTMLCanvasElement>);
+  };
+  const onMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    onPointerUp((e as unknown) as React.PointerEvent<HTMLCanvasElement>);
+  };
+
+  // ---------- Fallback: Touch ----------
+  // Importante:
+  //  - NO usamos preventDefault() aquí para evitar el warning de listeners pasivos.
+  //  - La prevención del scroll ya la hace style={{ touchAction:'none' }}.
+  const onTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!e.touches.length) return;
+    const t = e.touches[0];
+    const c = canvasRef.current;
+    const ctx = ctxRef.current;
+    if (!c || !ctx) return;
+
+    drawingRef.current = true;
+    const { x, y } = getCoords(t.clientX, t.clientY);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const onTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current || !e.touches.length) return;
+    const t = e.touches[0];
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    const { x, y } = getCoords(t.clientX, t.clientY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const onTouchEnd = (_e: React.TouchEvent<HTMLCanvasElement>) => {
+    finishStroke();
+  };
+
+  // ---------- API pública ----------
+  const clear = useCallback(() => {
+    const c = canvasRef.current;
+    const ctx = ctxRef.current;
     if (!c || !ctx) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, c.width, c.height);
     if (onChange) onChange(c.toDataURL('image/png'));
-  }
+  }, [onChange]);
+
+  const toDataURL = (type?: string, quality?: number) =>
+    canvasRef.current?.toDataURL(type, quality) ?? '';
+
+  useImperativeHandle(ref, () => ({
+    clear,
+    toDataURL,
+  }));
 
   return (
     <div className="rounded-xl border border-slate-300 dark:border-slate-700 p-2">
       <canvas
         ref={canvasRef}
-        className="w-full"
-        style={{ height, touchAction: 'none' }}
+        className="w-full select-none"
+        style={{
+          height,
+          touchAction: 'none',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          msTouchAction: 'none' as any,
+          pointerEvents: 'auto',
+        }}
+        // Pointer events
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
         onPointerLeave={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        // Fallbacks
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        // Evitar menú contextual
         onContextMenu={(e) => e.preventDefault()}
       />
       <div className="flex justify-end mt-2">
-        <button type="button" className="px-2 py-1 rounded-lg border text-xs" onClick={clear}>
+        <button
+          type="button"
+          className="px-2 py-1 rounded-lg border text-xs"
+          onClick={clear}
+        >
           Limpiar
         </button>
       </div>
     </div>
   );
-}
+});
+
+export default SignaturePad;
