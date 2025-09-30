@@ -1,7 +1,11 @@
 /**
  * ============================================================
  * Archivo: src/components/modals/EvidenciasModal.tsx
- * (…encabezado idéntico…)
+ * Propósito:
+ *  - Listar/crear/eliminar evidencias.
+ *  - Firma digital con SignaturePad (iOS-safe).
+ *  - Subida con barra de progreso + feedback de éxito.
+ *  - Cierre automático del modal tras guardar.
  * ============================================================
  */
 
@@ -10,7 +14,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { getEvidenciasByReporte, uploadEvidencia, deleteEvidencia } from '../../services/evidenciasService';
+import { getEvidenciasByReporte, uploadEvidencia } from '../../services/evidenciasService';
+import { deleteEvidencia } from '../../services/evidenciasService';
 import { getTiposEvidencia as getTiposEvidenciaCatalogo } from '../../services/catalogosService';
 import type { EvidenciaListadoItem } from '../../types/evidencias';
 import { resolveMediaUrl, isImageUrl } from '../../utils/urlResolver';
@@ -36,6 +41,8 @@ const CANVAS_CSS_HEIGHT = 220;
 const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
   const qc = useQueryClient();
   const [ready, setReady] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
 
   const tiposQ = useQuery({
     queryKey: ['tipoevidencias'],
@@ -79,6 +86,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
 
   const sigRef = useRef<SignaturePadHandle | null>(null);
 
+  /** PNG → JPG B/N fondo blanco (para firma) */
   async function dataURLToGrayscaleJpegFile(pngDataURL: string, name = 'firma.jpg', quality = 0.92): Promise<File> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const im = new Image();
@@ -113,8 +121,15 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     return new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() });
   }
 
+  // Wrap para pasar onUploadProgress y manejar feedback
   const mCreate = useMutation({
-    mutationFn: uploadEvidencia,
+    mutationFn: async (payload: Parameters<typeof uploadEvidencia>[0]) => {
+      setUploadPct(0);
+      setOkMsg(null);
+      await uploadEvidencia(payload, {
+        onUploadProgress: (pct) => setUploadPct(pct),
+      });
+    },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['evidencias', idReporte] });
       reset({
@@ -129,10 +144,15 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
         archivo: new DataTransfer().files,
       });
       sigRef.current?.clear();
+      setOkMsg('Evidencia guardada correctamente.');
+      setUploadPct(null);
       onSaved?.();
+      // Cierra el modal tras un breve feedback visual
+      setTimeout(() => onClose(), 600);
     },
     onError: (e: any) => {
       console.debug('[EvidenciasModal] upload error', e);
+      setUploadPct(null);
       alert(e?.message ?? 'No fue posible crear la evidencia.');
     },
   });
@@ -176,6 +196,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     });
   });
 
+  // Loading inicial (skeleton)
   if (!ready) {
     return (
       <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2" role="dialog" aria-modal="true" onClick={onClose}>
@@ -196,6 +217,8 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
 
   const tiposOptions = (tiposQ.data ?? []).map((t) => ({ value: t.id_tipo_evidencia, label: t.descripcion_tipo_evidencia }));
 
+  const disabled = mCreate.isPending || uploadPct !== null;
+
   return (
     <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50" role="dialog" aria-modal="true" onClick={onClose}>
       <div
@@ -207,6 +230,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
           max-h-[100dvh]
           overflow-y-auto overscroll-contain
           p-4 md:p-5
+          relative
         "
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
@@ -224,8 +248,15 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
           </button>
         </div>
 
+        {/* Feedback éxito */}
+        {okMsg && (
+          <div className="mb-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-2 text-sm" role="status" aria-live="polite">
+            {okMsg}
+          </div>
+        )}
+
         {/* Formulario */}
-        <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3 md:grid-cols-3" aria-busy={disabled}>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
               Tipo de Evidencia <span className="text-red-500">*</span>
@@ -233,6 +264,7 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
             <select
               {...register('id_tipo_evidencia', { required: true, valueAsNumber: true })}
               className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+              disabled={disabled}
             >
               <option value="">— Seleccionar —</option>
               {tiposOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
@@ -241,29 +273,34 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
           </div>
 
           {/* Firma */}
-          {esFirma && (
-            <>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Nombre del firmante</label>
-                <input
-                  type="text"
-                  {...register('firmante')}
-                  placeholder="Ej: Juan Pérez"
-                  className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
-                />
-              </div>
+            {esFirma && (
+              <>
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Nombre del firmante</label>
+                  <input
+                    type="text"
+                    {...register('firmante')}
+                    placeholder="Ej: Juan Pérez"
+                    className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+                    disabled={disabled}
+                  />
+                </div>
 
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Firma digital (dibuje en el recuadro)</label>
-                <SignaturePad
-                  key={`sig-${idReporte}-${idTipo}`} // fuerza montaje limpio cuando cambia el tipo
-                  ref={sigRef}
-                  height={CANVAS_CSS_HEIGHT}
-                />
-                <p className="mt-2 text-xs text-slate-500">Se guardará como JPG (blanco y negro, fondo blanco).</p>
-              </div>
-            </>
-          )}
+                <div className="md:col-span-3">
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Firma digital (dibuje en el recuadro)</label>
+                  <SignaturePad
+                    key={`sig-${idReporte}-${idTipo}`}
+                    ref={sigRef}
+                    height={CANVAS_CSS_HEIGHT}
+                    className={disabled ? 'opacity-60 pointer-events-none' : ''}
+                    debug={true}                 // 👈 activa logs en consola
+                    requireTapToActivate={true}  // 👈 overlay “tocar para activar”
+                    // lockScrollWhileDrawing: por defecto true en iOS; puedes forzar true/false si quieres
+                  />
+                  <p className="mt-2 text-xs text-slate-500">Se guardará como JPG (blanco y negro, fondo blanco).</p>
+                </div>
+              </>
+            )}
 
           {/* Otros tipos */}
           {!esFirma && (
@@ -275,17 +312,18 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
                   accept={accept}
                   {...register('archivo')}
                   className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 p-2 text-sm dark:border-slate-700"
+                  disabled={disabled}
                 />
                 <p className="mt-1 text-xs text-slate-500">Se guardará como EVI_&lt;reporte&gt;_&lt;tipo&gt;_&lt;fecha&gt;.*</p>
               </div>
 
               <div className="md:col-span-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div><label className="mb-1 block text-sm font-medium">Modelo</label><input type="text" {...register('modelo')} className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
-                <div><label className="mb-1 block text-sm font-medium">N° Serie</label><input type="text" {...register('numero_serie')} className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
-                <div><label className="mb-1 block text-sm font-medium">IPv4</label><input type="text" {...register('ipv4')} placeholder="192.168.1.10" className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
-                <div><label className="mb-1 block text-sm font-medium">IPv6</label><input type="text" {...register('ipv6')} className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
-                <div><label className="mb-1 block text-sm font-medium">MAC</label><input type="text" {...register('macadd')} placeholder="AA-BB-CC-DD-EE-FF" className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
-                <div><label className="mb-1 block text-sm font-medium">Nombre máquina</label><input type="text" {...register('nombre_maquina')} className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
+                <div><label className="mb-1 block text-sm font-medium">Modelo</label><input disabled={disabled} type="text" {...register('modelo')} className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
+                <div><label className="mb-1 block text-sm font-medium">N° Serie</label><input disabled={disabled} type="text" {...register('numero_serie')} className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
+                <div><label className="mb-1 block text-sm font-medium">IPv4</label><input disabled={disabled} type="text" {...register('ipv4')} placeholder="192.168.1.10" className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
+                <div><label className="mb-1 block text-sm font-medium">IPv6</label><input disabled={disabled} type="text" {...register('ipv6')} className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
+                <div><label className="mb-1 block text-sm font-medium">MAC</label><input disabled={disabled} type="text" {...register('macadd')} placeholder="AA-BB-CC-DD-EE-FF" className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
+                <div><label className="mb-1 block text-sm font-medium">Nombre máquina</label><input disabled={disabled} type="text" {...register('nombre_maquina')} className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800" /></div>
               </div>
             </>
           )}
@@ -306,16 +344,32 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
                   archivo: new DataTransfer().files,
                 });
                 sigRef.current?.clear();
+                setOkMsg(null);
               }}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800 disabled:opacity-60"
+              disabled={disabled}
             >
               Limpiar
             </button>
-            <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700">
-              Guardar evidencia
+            <button
+              type="submit"
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
+              disabled={disabled}
+            >
+              {uploadPct !== null ? 'Subiendo…' : 'Guardar evidencia'}
             </button>
           </div>
         </form>
+
+        {/* Barra de progreso (overlay inferior) */}
+        {uploadPct !== null && (
+          <div className="sticky bottom-0 left-0 right-0 mt-3">
+            <div className="h-2 w-full rounded bg-slate-200 dark:bg-slate-800 overflow-hidden" aria-label="Progreso de subida" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadPct}>
+              <div className="h-full bg-emerald-600 transition-[width] duration-200" style={{ width: `${uploadPct}%` }} />
+            </div>
+            <p className="mt-1 text-xs text-slate-500 text-right">{uploadPct}%</p>
+          </div>
+        )}
 
         {/* Divider */}
         <hr className="my-3 md:my-4 border-slate-200 dark:border-slate-800" />
@@ -350,12 +404,14 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
                     <button
                       title="Eliminar evidencia"
                       onClick={async () => {
+                        if (uploadPct !== null) return;
                         const ok = confirm(`¿Eliminar evidencia #${ev.id_evidencia}?`);
                         if (!ok) return;
                         await mDelete.mutateAsync(ev.id_evidencia);
                       }}
-                      className="rounded-full bg-red-600 p-2 text-white hover:bg-red-700"
+                      className="rounded-full bg-red-600 p-2 text-white hover:bg-red-700 disabled:opacity-60"
                       aria-label="Eliminar evidencia"
+                      disabled={uploadPct !== null}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2m1 6v8h2V9h-2m-4 0v8h2V9H7m8 0v8h2V9h-2Z"/></svg>
                     </button>

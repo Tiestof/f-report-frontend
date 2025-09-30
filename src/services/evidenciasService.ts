@@ -2,89 +2,97 @@
  * ============================================================
  * Archivo: src/services/evidenciasService.ts
  * Propósito:
- *   - Capa HTTP para Evidencias (listar por reporte, subir, eliminar).
- *   - Compatibilidad con imports antiguos de V14 mediante ALIAS.
- *
- * Endpoints backend:
- *   - GET    /api/evidencias/reporte/:id_reporte
- *   - POST   /api/evidencias/upload              (multipart, campo 'file')
- *   - DELETE /api/evidencias/:id
- *
- * Notas importantes:
- *   - Para nombrar correctamente el archivo en el backend, los campos
- *     id_reporte e id_tipo_evidencia deben enviarse ANTES del 'file'
- *     dentro del FormData (Multer lee req.body en el filename()).
- *
- * Alias de compatibilidad:
- *   - listarEvidenciasPorReporte -> getEvidenciasByReporte
- *   - crearEvidencia             -> uploadEvidencia
- *   - eliminarEvidencia          -> deleteEvidencia
+ *  - Servicio de Evidencias (listar / subir / eliminar).
+ *  - Alineado con la API: POST /api/evidencias/upload (field: "file").
+ *  - Compatibilidad retro: exporta nombres en ES y en español.
+ * Notas:
+ *  - Requiere una instancia Axios en ./api con baseURL '/api'.
+ *  - onUploadProgress soportado para barra de progreso en UI.
  * ============================================================
  */
 
 import api from './api';
-import type { EvidenciaListadoItem } from '../types/evidencias';
 
-/** Tipo para subir una evidencia (firma JPG o archivo de imagen/PDF) */
-export type EvidenciaCreateUploadInput = {
+/** Payload para subir evidencia (incluye firma o archivo genérico) */
+export type UploadEvidenciaInput = {
   id_reporte: number;
   id_tipo_evidencia: number;
-
-  /** Firma digital: nombre del firmante (opcional) */
+  // Firma
   firmante?: string;
-
-  /** Metadatos para otros tipos */
+  // Metadatos opcionales
   modelo?: string;
   numero_serie?: string;
   ipv4?: string;
   ipv6?: string;
   macadd?: string;
   nombre_maquina?: string;
-
-  /** Archivo a subir (campo 'file') */
+  // Archivo
   file: File;
 };
 
-/** GET /api/evidencias/reporte/:id_reporte */
-export async function getEvidenciasByReporte(id_reporte: number): Promise<EvidenciaListadoItem[]> {
+type UploadOpts = {
+  onUploadProgress?: (pct: number) => void;
+};
+
+/**
+ * Lista evidencias por id_reporte
+ * GET /api/evidencias/reporte/:id_reporte
+ */
+export async function getEvidenciasByReporte(id_reporte: number) {
   const { data } = await api.get(`/evidencias/reporte/${id_reporte}`);
-  return (Array.isArray(data) ? data : []) as EvidenciaListadoItem[];
-}
-
-/** POST /api/evidencias/upload (multipart + 'file') */
-export async function uploadEvidencia(input: EvidenciaCreateUploadInput): Promise<{ id: number; url: string }> {
-  const fd = new FormData();
-
-  // ⚠️ Campos ANTES del archivo (Multer)
-  fd.append('id_reporte', String(input.id_reporte));
-  fd.append('id_tipo_evidencia', String(input.id_tipo_evidencia));
-
-  if (input.firmante) fd.append('firmante', input.firmante);
-
-  if (input.modelo) fd.append('modelo', input.modelo);
-  if (input.numero_serie) fd.append('numero_serie', input.numero_serie);
-  if (input.ipv4) fd.append('ipv4', input.ipv4);
-  if (input.ipv6) fd.append('ipv6', input.ipv6);
-  if (input.macadd) fd.append('macadd', input.macadd);
-  if (input.nombre_maquina) fd.append('nombre_maquina', input.nombre_maquina);
-
-  fd.append('file', input.file);
-
-  const { data } = await api.post('/evidencias/upload', fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
   return data;
 }
 
-/** DELETE /api/evidencias/:id */
-export async function deleteEvidencia(id_evidencia: number): Promise<{ ok?: boolean; mensaje?: string }> {
+/** Alias retro-compatibilidad */
+export const listarEvidenciasPorReporte = getEvidenciasByReporte;
+
+/**
+ * Elimina una evidencia por id
+ * DELETE /api/evidencias/:id
+ */
+export async function deleteEvidencia(id_evidencia: number) {
   const { data } = await api.delete(`/evidencias/${id_evidencia}`);
   return data;
 }
 
-/* ============================================================
- * ALIAS DE COMPATIBILIDAD (V14) — NO ROMPER IMPORTS EXISTENTES
- * ============================================================ */
-export const listarEvidenciasPorReporte = getEvidenciasByReporte;
-export const crearEvidencia = uploadEvidencia;
+/** Alias retro-compatibilidad */
 export const eliminarEvidencia = deleteEvidencia;
+
+/**
+ * Sube una evidencia (firma o archivo)
+ * POST /api/evidencias/upload (field name: "file")
+ */
+export async function uploadEvidencia(
+  payload: UploadEvidenciaInput,
+  opts?: UploadOpts
+) {
+  const fd = new FormData();
+  fd.append('id_reporte', String(payload.id_reporte));
+  fd.append('id_tipo_evidencia', String(payload.id_tipo_evidencia));
+  if (payload.firmante) fd.append('firmante', payload.firmante);
+
+  if (payload.modelo) fd.append('modelo', payload.modelo);
+  if (payload.numero_serie) fd.append('numero_serie', payload.numero_serie);
+  if (payload.ipv4) fd.append('ipv4', payload.ipv4);
+  if (payload.ipv6) fd.append('ipv6', payload.ipv6);
+  if (payload.macadd) fd.append('macadd', payload.macadd);
+  if (payload.nombre_maquina) fd.append('nombre_maquina', payload.nombre_maquina);
+
+  fd.append('file', payload.file);
+
+  await api.post(`/evidencias/upload`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: (evt) => {
+      if (!opts?.onUploadProgress) return;
+      const total = evt.total ?? 0;
+      const pct = total ? Math.round((evt.loaded / total) * 100) : 0;
+      opts.onUploadProgress(Math.max(0, Math.min(100, pct)));
+    },
+  });
+}
+
+/** Alias retro-compatibilidad */
+export const subirEvidencia = uploadEvidencia;
+
+// TODO: añadir tipos de retorno (EvidenciaListadoItem) desde src/types/evidencias
+//       cuando estén definidos en el proyecto para tipado más estricto.
