@@ -1,254 +1,461 @@
 /**
  * ============================================================
  * Archivo: src/components/modals/GastosModal.tsx
- * Componente: GastosModal
- * Descripción:
- *  - Permite ingresar N gastos en un modal (tipo, monto, fecha, comentario, imagen opcional).
- *  - Las imágenes se comprimen en el cliente y se convierten a blanco y negro (canvas).
- *  - Al guardar, envía cada gasto por separado.
+ * Componente: GastosModal (v2)
+ * Propósito:
+ *  - UI/UX alineado a Evidencias:
+ *    • Full-screen móvil tipo sheet con scroll interno.
+ *    • Listado de gastos existentes con miniatura/“Ver archivo” y papelera.
+ *    • Form de un gasto por envío con barra de progreso.
+ *  - Carga de imágenes/archivos (incluye cámara en móvil).
+ *  - Imágenes a JPG en escala de grises y comprimidas.
+ *  - Límite de tamaño: 12 MB original; objetivo ~2 MB comprimido.
+ *  - Subida preferente a POST /api/gastos/upload (campo "file").
+ *  - Al terminar: feedback, refetch, onSaved(), cierra modal.
  * ============================================================
  */
 
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getTiposGasto } from '../../services/catalogosService';
-import { createGasto, listarGastosPorReporte, eliminarGasto } from '../../services/gastosService';
-import { compressToJpegDataURL } from '../../utils/imageTools';
-import FileUploader from '../ui/FileUploader';
+import type { FC, MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-type Props = {
-  idReporte: number;
-  onClose: () => void;
-  onSaved: () => void;
-};
+import { getTiposGasto } from '../../services/catalogosService';
+import {
+  listarGastosPorReporte,
+  eliminarGasto,
+  createGasto,
+  uploadGasto,
+} from '../../services/gastosService';
+
+import { isImageFile, grayscaleCompressToJpegBlob } from '../../utils/imageTools';
+import { resolveMediaUrl, isImageUrl } from '../../utils/urlResolver';
+
+type Props = { idReporte: number; onClose: () => void; onSaved?: () => void };
 
 type TipoGasto = { id_tipo_gasto: number; descripcion: string };
 
-type Row = {
-  id?: number;
-  id_tipo_gasto?: number;
-  monto?: number;
-  fecha_gasto?: string;
-  comentario?: string;
-  file?: File | null;
-  preview?: string | null; // DataURL
-};
-
-type GastoExistente = {
-  id_gasto?: number;
-  id?: number;
-  id_tipo_gasto?: number;
-  monto?: number;
-  fecha_gasto?: string | null;
-  fecha?: string | null;
+type GastoListado = {
+  id_gasto: number;
+  id_reporte: number;
+  id_tipo_gasto: number | null;
+  monto: number | null;
   comentario?: string | null;
-  descripcion?: string | null;
+  fecha_gasto?: string | null;
   imagen_url?: string | null;
+  tipo_gasto?: string | null;
 };
 
-export default function GastosModal({ idReporte, onClose, onSaved }: Props) {
-  const { data: tipos = [] } = useQuery<TipoGasto[]>({
+type FormValues = {
+  id_tipo_gasto: number | '';
+  monto: number | '';
+  fecha_gasto: string;
+  comentario?: string;
+  archivo: FileList;
+};
+
+const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
+  const qc = useQueryClient();
+
+  // Catálogo
+  const tiposQ = useQuery<TipoGasto[]>({
     queryKey: ['tipos-gasto'],
     queryFn: getTiposGasto,
-    staleTime: 10 * 60 * 1000,
+    staleTime: 10 * 60_000,
   });
-  const [rows, setRows] = useState<Row[]>([{}]);
 
-  const tipoMap = useMemo(() => new Map(tipos.map((t) => [t.id_tipo_gasto, t.descripcion])), [tipos]);
-
-  const { data: gastosExistentes = [], isFetching: loadingGastos, refetch: refetchGastos } = useQuery<GastoExistente[]>({
-    queryKey: ['gastos-reporte', idReporte],
+  // Gastos por reporte
+  const gastosQ = useQuery<GastoListado[]>({
+    queryKey: ['gastos', idReporte],
     queryFn: () => listarGastosPorReporte(idReporte),
-    staleTime: 5 * 60 * 1000,
+    enabled: !!idReporte,
+    staleTime: 5 * 60_000,
   });
 
-  const addRow = () => setRows((rs) => [...rs, {}]);
-  const removeRow = (idx: number) => setRows((rs) => rs.filter((_, i) => i !== idx));
+  // Form
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<FormValues>({
+    defaultValues: {
+      id_tipo_gasto: '',
+      monto: '',
+      fecha_gasto: new Date().toISOString().slice(0, 10),
+      comentario: '',
+      archivo: new DataTransfer().files,
+    },
+  });
 
-  const onFile = async (idx: number, f: File | null) => {
-    if (!f) {
-      setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, file: null, preview: null } : r)));
-      return;
-    }
-    const dataUrl = await compressToJpegDataURL(f, { maxW: 1600, maxH: 1200, grayscale: true, quality: 0.7 });
-    setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, file: f, preview: dataUrl } : r)));
-  };
+  // Registro del input file (lo usamos para fusionar refs)
+  const archivoReg = register('archivo');
 
-  const handleDelete = async (gasto: GastoExistente) => {
-    const id = gasto.id_gasto ?? gasto.id;
-    if (!id) return;
-    const ok = confirm('¿Eliminar el gasto seleccionado?');
-    if (!ok) return;
-    try {
-      await eliminarGasto(id);
+  const accept = 'image/*,.pdf';
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Añadir atributo 'capture' sin usar @ts-expect-error
+  useEffect(() => {
+    fileInputRef.current?.setAttribute('capture', 'environment');
+  }, []);
+
+  // Carga con barra de progreso
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  // Eliminar
+  const mDelete = useMutation({
+    mutationFn: (id: number) => eliminarGasto(id),
+    onSuccess: async () => {
       toast.success('Gasto eliminado');
-      await refetchGastos();
-      onSaved();
-    } catch (error) {
-      console.error(error);
-      toast.error('No se pudo eliminar el gasto');
-    }
-  };
+      await qc.invalidateQueries({ queryKey: ['gastos', idReporte] });
+    },
+    onError: () => toast.error('No se pudo eliminar el gasto'),
+  });
 
-  const saveAll = async () => {
+  // Submit
+  const onSubmit = handleSubmit(async (v) => {
     try {
-      for (const r of rows) {
-        if (!r.id_tipo_gasto || !r.monto || !r.fecha_gasto) continue;
+      if (!v.id_tipo_gasto) return toast.error('Selecciona un tipo de gasto');
+      if (!v.monto) return toast.error('Ingresa el monto del gasto');
+      if (!v.fecha_gasto) return toast.error('Selecciona la fecha del gasto');
 
-        let imageUrl: string | undefined = undefined;
-        if (r.preview) {
-          // Si implementas /uploads, aquí subes y reemplazas por URL devuelta.
-          imageUrl = r.preview;
-        }
+      const maybeFile = v.archivo?.item(0) ?? null;
 
+      // Sin archivo → crear directo
+      if (!maybeFile) {
         await createGasto({
           id_reporte: idReporte,
-          id_tipo_gasto: r.id_tipo_gasto,
-          monto: r.monto,
-          fecha_gasto: r.fecha_gasto,
-          comentario: r.comentario ?? '',
-          imagen_url: imageUrl ?? '',
+          id_tipo_gasto: Number(v.id_tipo_gasto),
+          monto: Number(v.monto),
+          fecha_gasto: v.fecha_gasto,
+          comentario: v.comentario?.trim() || '',
+          imagen_url: '',
         });
+        toast.success('Gasto guardado');
+        await qc.invalidateQueries({ queryKey: ['gastos', idReporte] });
+        onSaved?.();
+        onClose();
+        return;
       }
-      toast.success('Gastos guardados');
-      await refetchGastos();
-      setRows([{}]);
-      onSaved();
-      onClose();
 
-    } catch (e) {
-      console.error(e);
-      toast.error('Error al guardar gastos');
+      // Validación tamaño original
+      const rawSizeMB = maybeFile.size / (1024 * 1024);
+      if (rawSizeMB > 12) {
+        toast.error('Archivo demasiado grande (máx. 12 MB).');
+        return;
+      }
+
+      // Preparar archivo final
+      let fileToSend: File = maybeFile;
+      if (isImageFile(maybeFile)) {
+        const jpegBlob = await grayscaleCompressToJpegBlob(maybeFile, {
+          maxW: 1600,
+          maxH: 1200,
+          qualityStart: 0.8,
+          qualityMin: 0.5,
+          targetMaxBytes: 2 * 1024 * 1024,
+        });
+        fileToSend = new File([jpegBlob], 'gasto.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+      }
+
+      // Subida con progreso
+      setUploading(true);
+      setProgress(5);
+
+      const res = await uploadGasto(
+        {
+          id_reporte: idReporte,
+          id_tipo_gasto: Number(v.id_tipo_gasto),
+          monto: Number(v.monto),
+          fecha_gasto: v.fecha_gasto,
+          comentario: v.comentario?.trim() || '',
+          file: fileToSend,
+        },
+        (p) => setProgress(p)
+      );
+
+      if (res?.ok) {
+        toast.success('Gasto guardado');
+      } else {
+        // Fallback si no existe /upload (ex.: 404/405)
+        if (isImageFile(fileToSend)) {
+          const reader = new FileReader();
+          const dataURL: string = await new Promise((resolve, reject) => {
+            reader.onerror = reject;
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(fileToSend);
+          });
+          await createGasto({
+            id_reporte: idReporte,
+            id_tipo_gasto: Number(v.id_tipo_gasto),
+            monto: Number(v.monto),
+            fecha_gasto: v.fecha_gasto,
+            comentario: v.comentario?.trim() || '',
+            imagen_url: dataURL,
+          });
+          toast.success('Gasto guardado (sin /upload)');
+        } else {
+          toast.error('El backend no soporta /api/gastos/upload para PDF. Ajusta la API o sube una imagen.');
+          setUploading(false);
+          return;
+        }
+      }
+
+      // Reset + refetch + cerrar
+      await qc.invalidateQueries({ queryKey: ['gastos', idReporte] });
+      reset({
+        id_tipo_gasto: '',
+        monto: '',
+        fecha_gasto: new Date().toISOString().slice(0, 10),
+        comentario: '',
+        archivo: new DataTransfer().files,
+      });
+      onSaved?.();
+      onClose();
+    } catch (err: any) {
+      console.error('[GastosModal] submit error', err);
+      toast.error(err?.message ?? 'No fue posible guardar el gasto.');
+    } finally {
+      setUploading(false);
+      setProgress(0);
     }
-  };
+  });
+
+  // UX modal-fullscreen móvil
+  function stopClose(e: MouseEvent<HTMLDivElement>) { e.stopPropagation(); }
+
+  // Opciones de tipos
+  const tiposOptions = useMemo(
+    () => (tiposQ.data ?? []).map((t) => ({ value: t.id_tipo_gasto, label: t.descripcion })),
+    [tiposQ.data]
+  );
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-      <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-zinc-900 shadow-xl p-4">
-        <h3 className="text-lg font-semibold">Gastos del reporte #{idReporte}</h3>
-        <div className="mt-3 flex flex-col gap-4 max-h-[60vh] overflow-auto pr-1">
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold">Gastos registrados</h4>
-            {loadingGastos ? (
-              <div className="text-xs text-slate-500">Cargando gastos...</div>
-            ) : gastosExistentes.length === 0 ? (
-              <div className="text-xs text-slate-500">Sin gastos registrados.</div>
-            ) : (
-              gastosExistentes.map((g) => {
-                const id = g.id_gasto ?? g.id;
-                const fechaRaw = g.fecha_gasto ?? g.fecha ?? '';
-                const fecha = fechaRaw ? new Date(fechaRaw).toISOString().slice(0, 10) : '';
-                const comentario = g.comentario ?? g.descripcion ?? '';
-                return (
-                  <div
-                    key={id ?? `${fecha}-${comentario}`}
-                    className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 flex flex-col gap-1 text-xs"
-                  >
-                    <div className="flex flex-wrap gap-3">
-                      <span><b>Tipo:</b> {tipoMap.get(g.id_tipo_gasto ?? 0) ?? g.id_tipo_gasto ?? '-'}</span>
-                      <span><b>Monto:</b> {g.monto != null ? Math.round(Number(g.monto)) : '-'}</span>
-                      <span><b>Fecha:</b> {fecha || '-'}</span>
-                    </div>
-                    {comentario ? <div><b>Comentario:</b> {comentario}</div> : null}
-                    {g.imagen_url ? (
-                      <div className="mt-1">
-                        <img src={g.imagen_url} alt="Evidencia gasto" className="h-20 rounded border object-cover" />
-                      </div>
-                    ) : null}
-                    <div className="flex justify-end">
-                      <button className="px-2 py-1 rounded border text-xs" onClick={() => handleDelete(g)}>
-                        Eliminar
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </section>
-
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold">Agregar nuevos gastos</h4>
-            {rows.map((row, idx) => (
-            <div key={idx} className="rounded-xl border p-3 grid grid-cols-1 md:grid-cols-6 gap-2">
-              <div>
-                <label className="text-xs">Tipo</label>
-                <select
-                  className="input w-full"
-                  value={row.id_tipo_gasto ?? ''}
-                  onChange={(e) => {
-                    const val = e.target.value ? Number(e.target.value) : undefined;
-                    setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, id_tipo_gasto: val } : r)));
-                  }}
-                >
-                  <option value="">—</option>
-                  {tipos.map((t) => (
-                    <option key={t.id_tipo_gasto} value={t.id_tipo_gasto}>
-                      {t.descripcion}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs">Monto</label>
-                <input
-                  className="input w-full"
-                  type="number"
-                  min={0}
-                  value={row.monto ?? ''}
-                  onChange={(e) => {
-                    const val = e.target.value ? Number(e.target.value) : undefined;
-                    setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, monto: val } : r)));
-                  }}
-                />
-              </div>
-              <div>
-                <label className="text-xs">Fecha</label>
-                <input
-                  className="input w-full"
-                  type="date"
-                  value={row.fecha_gasto ?? ''}
-                  onChange={(e) => {
-                    const val = e.target.value || undefined;
-                    setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, fecha_gasto: val } : r)));
-                  }}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="text-xs">Comentario</label>
-                <input
-                  className="input w-full"
-                  value={row.comentario ?? ''}
-                  onChange={(e) => setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, comentario: e.target.value } : r)))}
-                />
-              </div>
-              <div>
-                <label className="text-xs">Boleta/Foto (opcional)</label>
-                <FileUploader onFile={(f) => onFile(idx, f)} preview={row.preview ?? undefined} accept="image/*" capture />
-              </div>
-
-              <div className="md:col-span-6 flex justify-end">
-                <button className="px-2 py-1 rounded-lg border text-xs" onClick={() => removeRow(idx)}>
-                  Quitar
-                </button>
-              </div>
-            </div>
-          ))}
-            <button className="self-start px-3 py-2 rounded-xl border text-sm" onClick={addRow}>
-              + Agregar gasto
-            </button>
-          </section>
-        </div>
-
-        <div className="mt-4 flex justify-end gap-2">
-          <button className="px-3 py-2 rounded-xl border" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50" role="dialog" aria-modal="true" onClick={onClose}>
+      <div
+        onClick={stopClose}
+        className="
+          w-full md:max-w-4xl bg-white dark:bg-slate-900 shadow-xl
+          rounded-t-2xl md:rounded-2xl
+          h-[92vh] md:h-auto md:max-h-[90vh]
+          overflow-y-auto
+          p-4 md:p-5
+        "
+      >
+        {/* Header */}
+        <div className="mb-3 md:mb-4 flex items-center justify-between sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur z-10 py-1">
+          <h2 className="text-lg md:text-xl font-semibold text-slate-800 dark:text-slate-100">
+            Gastos del Reporte #{idReporte}
+          </h2>
+          <button
+            onClick={onClose}
+            className="rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            aria-label="Cerrar modal"
+          >
             Cerrar
           </button>
-          <button className="px-3 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700" onClick={saveAll}>
-            Guardar
-          </button>
         </div>
+
+        {/* Form */}
+        <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Tipo de gasto <span className="text-red-500">*</span>
+            </label>
+            <select
+              {...register('id_tipo_gasto', { required: true, valueAsNumber: true })}
+              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+            >
+              <option value="">— Seleccionar —</option>
+              {tiposOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {errors.id_tipo_gasto && <p className="mt-1 text-xs text-red-600">Selecciona un tipo de gasto.</p>}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Monto <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min={0}
+              step="1"
+              {...register('monto', { required: true, valueAsNumber: true })}
+              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+            />
+            {errors.monto && <p className="mt-1 text-xs text-red-600">Ingresa el monto.</p>}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Fecha <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="date"
+              {...register('fecha_gasto', { required: true })}
+              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+            />
+            {errors.fecha_gasto && <p className="mt-1 text-xs text-red-600">Selecciona la fecha.</p>}
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Comentario (opcional)
+            </label>
+            <input
+              type="text"
+              {...register('comentario')}
+              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Boleta/Foto (opcional)
+            </label>
+            <input
+              type="file"
+              accept={accept}
+              name={archivoReg.name}
+              onChange={archivoReg.onChange}
+              onBlur={archivoReg.onBlur}
+              ref={(el) => { archivoReg.ref(el); fileInputRef.current = el; }}
+              className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 p-2 text-sm dark:border-slate-700"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Imágenes se convierten a JPG en blanco y negro (máx. 12MB original / ~2MB comprimido).
+            </p>
+          </div>
+
+          {/* Barra de progreso */}
+          {uploading && (
+            <div className="md:col-span-3">
+              <div className="h-2 w-full rounded bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                <div
+                  className="h-2 bg-emerald-600 transition-all"
+                  style={{ width: `${Math.min(progress, 100)}%` }}
+                />
+              </div>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Subiendo… {Math.floor(progress)}%</p>
+            </div>
+          )}
+
+          <div className="md:col-span-3 mt-1 md:mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                reset({
+                  id_tipo_gasto: '',
+                  monto: '',
+                  fecha_gasto: new Date().toISOString().slice(0, 10),
+                  comentario: '',
+                  archivo: new DataTransfer().files,
+                });
+              }}
+              disabled={uploading}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Limpiar
+            </button>
+            <button
+              type="submit"
+              disabled={uploading}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              Guardar gasto
+            </button>
+          </div>
+        </form>
+
+        <hr className="my-3 md:my-4 border-slate-200 dark:border-slate-800" />
+
+        {/* Listado */}
+        <section>
+          <h3 className="mb-2 text-base font-semibold text-slate-800 dark:text-slate-100">Gastos existentes</h3>
+
+          {gastosQ.isLoading && <p className="text-sm text-slate-500">Cargando gastos…</p>}
+          {gastosQ.isError && (
+            <div className="text-sm text-red-600">
+              Error al obtener gastos. <button className="underline" onClick={() => gastosQ.refetch()}>Reintentar</button>
+            </div>
+          )}
+          {!gastosQ.isLoading && !gastosQ.isError && !(gastosQ.data?.length) && (
+            <p className="text-sm text-slate-500">No hay gastos registrados para este reporte.</p>
+          )}
+
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {gastosQ.data?.map((g) => {
+              const url = resolveMediaUrl(g.imagen_url || '');
+              const showImg = isImageUrl(url);
+              return (
+                <li key={g.id_gasto} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                        #{g.id_gasto} • {g.tipo_gasto ?? 'Tipo'} • ${g.monto ?? '-'}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {g.fecha_gasto ? new Date(g.fecha_gasto).toLocaleDateString() : ''}
+                      </p>
+                    </div>
+                    <button
+                      title="Eliminar gasto"
+                      onClick={async () => {
+                        const ok = confirm(`¿Eliminar gasto #${g.id_gasto}?`);
+                        if (!ok) return;
+                        await mDelete.mutateAsync(g.id_gasto);
+                      }}
+                      className="rounded-full bg-red-600 p-2 text-white hover:bg-red-700"
+                      aria-label="Eliminar gasto"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2m1 6v8h2V9h-2m-4 0v8h2V9H7m8 0v8h2V9h-2Z"/></svg>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {showImg && (
+                      <img
+                        src={url}
+                        alt={`Gasto ${g.id_gasto}`}
+                        className="max-h-36 w-full rounded-lg border border-slate-200 object-contain dark:border-slate-800"
+                        loading="lazy"
+                        onError={(e) => {
+                          (e.currentTarget.style.display = 'none');
+                          const link = e.currentTarget.nextElementSibling as HTMLAnchorElement | null;
+                          if (link) link.style.display = 'inline-flex';
+                        }}
+                      />
+                    )}
+
+                    <a
+                      href={url || '#'}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                      style={{ display: showImg ? 'none' : 'inline-flex' }}
+                    >
+                      Ver archivo
+                      <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M14 3l7 7l-1.41 1.41L15 7.83V20h-2V7.83l-4.59 4.58L7 10z"/></svg>
+                    </a>
+
+                    {g.comentario ? (
+                      <div className="text-xs text-slate-600 dark:text-slate-300">
+                        <b>Comentario:</b> {g.comentario}
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       </div>
     </div>
   );
-}
+};
+
+export default GastosModal;

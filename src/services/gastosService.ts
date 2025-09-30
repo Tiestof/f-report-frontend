@@ -1,93 +1,89 @@
 /**
  * ============================================================
  * Archivo: src/services/gastosService.ts
- * Descripción:
- *   - Servicios HTTP para GastoReporte.
- *   - COMPATIBLE hacia atrás con `createGasto` y ruta /gastos-reporte
- *   - Rutas V12 disponibles: POST /gastos, GET /gastos/reporte/:id_reporte
- *
- * Notas:
- *   - Deja ambos estilos para no romper lo actual.
- *   - Puedes migrar paulatinamente a `crearGastosLote` y `listarGastosPorReporte`.
+ * Propósito:
+ *  - Funciones HTTP para módulo de Gastos.
+ *  - Incluye upload con progreso a /api/gastos/upload (si existe).
+ *  - Fallback a createGasto si /upload no está disponible.
+ * Seguridad:
+ *  - Usa interceptores de api.ts (tokens, manejo de errores).
  * ============================================================
  */
 
 import api from './api';
 
-/** DTO legacy (actual en tu UI) */
-export type GastoDTO = {
+export type CreateGastoDTO = {
   id_reporte: number;
   id_tipo_gasto: number;
   monto: number;
-  fecha_gasto: string;     // legacy
-  comentario?: string;
-  imagen_url?: string;
+  fecha_gasto: string;
+  comentario: string;
+  imagen_url: string; // puede ser dataURL si no hay upload
 };
 
-/** DTO “nuevo” (alineado al naming V12) */
-export type GastoCreate = {
-  id_reporte: number;
-  id_tipo_gasto: number;
-  monto: number;
-  fecha?: string | null;       // ISO yyyy-mm-dd
-  descripcion?: string | null; // mapea desde comentario
-  imagen_url?: string | null;
-};
+export async function getGasto(id: number) {
+  const { data } = await api.get(`/gastos/${id}`);
+  return data;
+}
 
-/**
- * ---- COMPATIBILIDAD: createGasto (legacy)
- * Usa la ruta antigua /gastos-reporte para no romper tu UI actual.
- * Cuando migres, usa `crearGastosLote` (V12).
- */
-export async function createGasto(payload: GastoDTO) {
-  // Mantén la ruta legacy que hoy funciona en tu backend:
-  const { data } = await api.post('/gastos-reporte', payload);
+export async function listarGastosPorReporte(idReporte: number) {
+  const { data } = await api.get(`/gastos/reporte/${idReporte}`);
+  return data;
+}
+
+export async function createGasto(dto: CreateGastoDTO) {
+  const { data } = await api.post('/gastos', dto);
+  return data;
+}
+
+export async function eliminarGasto(id: number) {
+  const { data } = await api.delete(`/gastos/${id}`);
   return data;
 }
 
 /**
- * ---- NUEVO (V12): crearGastosLote
- * No hay endpoint bulk en V12, posteamos una por una a /gastos
+ * Sube archivo a /api/gastos/upload con metadatos obligatorios.
+ * - field name: "file"
+ * - onProgress: callback de progreso [0..100]
+ * Devuelve {ok:boolean, data?:any} o lanza Error.
  */
-export async function crearGastosLote(items: (GastoDTO | GastoCreate)[]): Promise<void> {
-  await Promise.all(
-    items.map((g) => {
-      // Mapeo para aceptar tanto DTO legacy como nuevo
-      const body: GastoCreate = {
-        id_reporte: g.id_reporte,
-        id_tipo_gasto: g.id_tipo_gasto,
-        monto: g.monto,
-        fecha: (g as any).fecha ?? (g as any).fecha_gasto ?? null,
-        descripcion: (g as any).descripcion ?? (g as any).comentario ?? null,
-        imagen_url: (g as any).imagen_url ?? null,
-      };
-      return api.post('/gastos', body);
-    })
-  );
-}
+export async function uploadGasto(
+  payload: {
+    id_reporte: number;
+    id_tipo_gasto: number;
+    monto: number;
+    fecha_gasto: string;
+    comentario: string;
+    file: File;
+  },
+  onProgress?: (p: number) => void
+): Promise<{ ok: boolean; data?: any }> {
+  const fd = new FormData();
+  // ⚠️ IMPORTANTE: estos campos deben ir ANTES del file para que Multer los vea en req.body (como en evidencias)
+  fd.append('id_reporte', String(payload.id_reporte));
+  fd.append('id_tipo_gasto', String(payload.id_tipo_gasto));
+  fd.append('monto', String(payload.monto));
+  fd.append('fecha_gasto', payload.fecha_gasto);
+  fd.append('comentario', payload.comentario ?? '');
+  fd.append('file', payload.file);
 
-/**
- * ---- NUEVO (V12): listar gastos por reporte
- * Intenta la ruta V12 y hace fallback a la legacy si existe en tu backend.
- */
-export async function listarGastosPorReporte(idReporte: number) {
   try {
-    const { data } = await api.get(`/gastos/reporte/${idReporte}`); // V12
-    return Array.isArray(data) ? data : [];
-  } catch {
-    // Fallback a tu ruta legacy si existe:
-    const { data } = await api.get(`/gastos-reporte/${idReporte}`);
-    return Array.isArray(data) ? data : [];
-  }
-}
-
-/**
- * Elimina un gasto por id (intenta ruta V12 y hace fallback a legacy).
- */
-export async function eliminarGasto(idGasto: number): Promise<void> {
-  try {
-    await api.delete(`/gastos/${idGasto}`);
-  } catch {
-    await api.delete(`/gastos-reporte/${idGasto}`);
+    const { data } = await api.post('/gastos/upload', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (e) => {
+        if (!onProgress) return;
+        if (!e.total) return onProgress(60); // estimación
+        const p = Math.round((e.loaded * 100) / e.total);
+        onProgress(Math.min(95, Math.max(5, p))); // dejamos 5% para post-proceso
+      },
+    });
+    onProgress?.(100);
+    return { ok: true, data };
+  } catch (err: any) {
+    // Si el backend devuelve 404 o 405, interpretamos que no existe /upload
+    if (err?.response?.status === 404 || err?.response?.status === 405) {
+      return { ok: false };
+    }
+    throw err;
   }
 }
