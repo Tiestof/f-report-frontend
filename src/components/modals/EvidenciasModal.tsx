@@ -1,17 +1,7 @@
 /**
  * ============================================================
  * Archivo: src/components/modals/EvidenciasModal.tsx
- * Propósito:
- *  - Tipos activos desde /tipoevidencias.
- *  - Listar evidencias /evidencias/reporte/:id (miniaturas correctas).
- *  - Subir:
- *      • Firma: SignaturePad → JPG B/N (fondo blanco) + firmante.
- *      • Otros: archivo (imagen/PDF) + metadatos.
- *  - Full-screen amigable en móvil:
- *      • Alturas con dvh/svh, overscroll contain y scroll suave.
- *  - Eliminar con confirmación (papelera roja).
- * Notas:
- *  - Compatible con endpoint de subida multipart del backend.
+ * (…encabezado idéntico…)
  * ============================================================
  */
 
@@ -25,23 +15,19 @@ import { getTiposEvidencia as getTiposEvidenciaCatalogo } from '../../services/c
 import type { EvidenciaListadoItem } from '../../types/evidencias';
 import { resolveMediaUrl, isImageUrl } from '../../utils/urlResolver';
 
-import SignaturePad from '../ui/SignaturePad';
-import type { SignaturePadHandle } from '../ui/SignaturePad';
+import SignaturePad, { type SignaturePadHandle } from '../ui/SignaturePad';
 
 type Props = { onClose: () => void; onSaved?: () => void; idReporte: number };
 
 type FormValues = {
   id_tipo_evidencia: number | '';
-  // Firma:
   firmante?: string;
-  // Metadatos:
   modelo?: string;
   numero_serie?: string;
   ipv4?: string;
   ipv6?: string;
   macadd?: string;
   nombre_maquina?: string;
-  // Archivo:
   archivo: FileList;
 };
 
@@ -51,14 +37,12 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
   const qc = useQueryClient();
   const [ready, setReady] = useState(false);
 
-  // 1) Catálogo (solo activados)
   const tiposQ = useQuery({
     queryKey: ['tipoevidencias'],
     queryFn: getTiposEvidenciaCatalogo,
     staleTime: 5 * 60_000,
   });
 
-  // 2) Evidencias por reporte
   const evidQ = useQuery<EvidenciaListadoItem[]>({
     queryKey: ['evidencias', idReporte],
     queryFn: () => getEvidenciasByReporte(idReporte),
@@ -69,7 +53,6 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     if (!tiposQ.isLoading && !evidQ.isLoading) setReady(true);
   }, [tiposQ.isLoading, evidQ.isLoading]);
 
-  // 3) Formulario
   const { register, watch, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
     defaultValues: {
       id_tipo_evidencia: '',
@@ -94,10 +77,8 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
   const esImagen = descTipo.includes('imagen') || descTipo.includes('foto');
   const accept = esFirma ? undefined : esImagen ? 'image/*' : '.pdf,image/*';
 
-  // 4) SignaturePad (robusto, forwardRef)
   const sigRef = useRef<SignaturePadHandle | null>(null);
 
-  /** Canvas PNG → JPG B/N con fondo blanco */
   async function dataURLToGrayscaleJpegFile(pngDataURL: string, name = 'firma.jpg', quality = 0.92): Promise<File> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const im = new Image();
@@ -114,12 +95,10 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     off.width = w;
     off.height = h;
     const octx = off.getContext('2d')!;
-    // Fondo blanco
     octx.fillStyle = '#ffffff';
     octx.fillRect(0, 0, w, h);
     octx.drawImage(img, 0, 0);
 
-    // Grises
     const imageData = octx.getImageData(0, 0, w, h);
     const d = imageData.data;
     for (let i = 0; i < d.length; i += 4) {
@@ -134,7 +113,6 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     return new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() });
   }
 
-  // 5) Mutations
   const mCreate = useMutation({
     mutationFn: uploadEvidencia,
     onSuccess: async () => {
@@ -166,7 +144,6 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     },
   });
 
-  // 6) Submit
   const onSubmit = handleSubmit(async (v) => {
     if (!v.id_tipo_evidencia) { alert('Selecciona un tipo de evidencia.'); return; }
 
@@ -199,13 +176,9 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     });
   });
 
-  // 7) Loading inicial (skeleton)
   if (!ready) {
     return (
-      <div
-        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2"
-        role="dialog" aria-modal="true" onClick={onClose}
-      >
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2" role="dialog" aria-modal="true" onClick={onClose}>
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
           <div className="animate-pulse space-y-3">
             <div className="h-5 w-1/2 rounded bg-slate-200 dark:bg-slate-700" />
@@ -219,16 +192,12 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
     );
   }
 
-  // 8) Render (sheet full-screen en móvil)
   function stopClose(e: MouseEvent<HTMLDivElement>) { e.stopPropagation(); }
 
   const tiposOptions = (tiposQ.data ?? []).map((t) => ({ value: t.id_tipo_evidencia, label: t.descripcion_tipo_evidencia }));
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50"
-      role="dialog" aria-modal="true" onClick={onClose}
-    >
+    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50" role="dialog" aria-modal="true" onClick={onClose}>
       <div
         onClick={stopClose}
         className="
@@ -286,7 +255,11 @@ const EvidenciasModal: FC<Props> = ({ onClose, onSaved, idReporte }) => {
 
               <div className="md:col-span-3">
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Firma digital (dibuje en el recuadro)</label>
-                <SignaturePad ref={sigRef} height={CANVAS_CSS_HEIGHT} />
+                <SignaturePad
+                  key={`sig-${idReporte}-${idTipo}`} // fuerza montaje limpio cuando cambia el tipo
+                  ref={sigRef}
+                  height={CANVAS_CSS_HEIGHT}
+                />
                 <p className="mt-2 text-xs text-slate-500">Se guardará como JPG (blanco y negro, fondo blanco).</p>
               </div>
             </>
