@@ -1,22 +1,22 @@
 /**
  * ============================================================
  * Archivo: src/components/modals/GastosModal.tsx
- * Componente: GastosModal (v2)
+ * Componente: GastosModal (v3)
  * Propósito:
- *  - UI/UX alineado a Evidencias:
- *    • Full-screen móvil tipo sheet con scroll interno.
- *    • Listado de gastos existentes con miniatura/“Ver archivo” y papelera.
- *    • Form de un gasto por envío con barra de progreso.
- *  - Carga de imágenes/archivos (incluye cámara en móvil).
- *  - Imágenes a JPG en escala de grises y comprimidas.
- *  - Límite de tamaño: 12 MB original; objetivo ~2 MB comprimido.
- *  - Subida preferente a POST /api/gastos/upload (campo "file").
- *  - Al terminar: feedback, refetch, onSaved(), cierra modal.
+ *  - UX alineada a Evidencias con mejoras móvil:
+ *    • Sheet full-screen, header pegado y scroll interno.
+ *    • Botones grandes: "Tomar foto" (cámara, color) / "Elegir archivo" (galería/archivos).
+ *    • Si la imagen proviene de archivo → convertir a JPG en blanco y negro.
+ *    • Si proviene de cámara → convertir a JPG manteniendo COLOR (para compatibilidad HEIC).
+ *  - Límite tamaño: 12 MB original; target ~2 MB.
+ *  - Subida preferente: POST /api/gastos/upload (campo "file") con barra de progreso.
+ *  - Listado de gastos siempre ABAJO del formulario.
+ *  - Al terminar: toast, refetch, onSaved(), y cierre del modal.
  * ============================================================
  */
 
 import type { FC, MouseEvent } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -29,7 +29,11 @@ import {
   uploadGasto,
 } from '../../services/gastosService';
 
-import { isImageFile, grayscaleCompressToJpegBlob } from '../../utils/imageTools';
+import {
+  isImageFile,
+  grayscaleCompressToJpegBlob,
+  colorCompressToJpegBlob,
+} from '../../utils/imageTools';
 import { resolveMediaUrl, isImageUrl } from '../../utils/urlResolver';
 
 type Props = { idReporte: number; onClose: () => void; onSaved?: () => void };
@@ -52,7 +56,7 @@ type FormValues = {
   monto: number | '';
   fecha_gasto: string;
   comentario?: string;
-  archivo: FileList;
+  archivo: FileList; // manejado por setValue desde inputs ocultos
 };
 
 const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
@@ -79,6 +83,7 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
     handleSubmit,
     reset,
     formState: { errors },
+    setValue,
   } = useForm<FormValues>({
     defaultValues: {
       id_tipo_gasto: '',
@@ -89,22 +94,19 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
     },
   });
 
-  // Registro del input file (lo usamos para fusionar refs)
-  const archivoReg = register('archivo');
-
-  const accept = 'image/*,.pdf';
+  // Inputs ocultos + origen del archivo
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [sourceType, setSourceType] = useState<'camera' | 'file' | null>(null);
 
-  // Añadir atributo 'capture' sin usar @ts-expect-error
-  useEffect(() => {
-    fileInputRef.current?.setAttribute('capture', 'environment');
-  }, []);
+  const acceptFile = 'image/*,.pdf';
+  const acceptCamera = 'image/*';
 
-  // Carga con barra de progreso
+  // Barra de progreso
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // Eliminar
+  // Eliminar gasto
   const mDelete = useMutation({
     mutationFn: (id: number) => eliminarGasto(id),
     onSuccess: async () => {
@@ -114,6 +116,24 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
     onError: () => toast.error('No se pudo eliminar el gasto'),
   });
 
+  // Handlers inputs ocultos
+  const handleCameraSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setSourceType('camera');
+    // setValue en RHF (nota: FileList puede asignarse como any)
+    setValue('archivo', files as unknown as FileList, { shouldValidate: true });
+    toast.info('Foto seleccionada (color).');
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setSourceType('file');
+    setValue('archivo', files as unknown as FileList, { shouldValidate: true });
+    toast.info('Archivo seleccionado.');
+  };
+
   // Submit
   const onSubmit = handleSubmit(async (v) => {
     try {
@@ -121,7 +141,8 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
       if (!v.monto) return toast.error('Ingresa el monto del gasto');
       if (!v.fecha_gasto) return toast.error('Selecciona la fecha del gasto');
 
-      const maybeFile = v.archivo?.item(0) ?? null;
+      const files = v.archivo;
+      const maybeFile = files?.item(0) ?? null;
 
       // Sin archivo → crear directo
       if (!maybeFile) {
@@ -147,18 +168,39 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
         return;
       }
 
-      // Preparar archivo final
+      // Preparar archivo final según fuente y tipo
       let fileToSend: File = maybeFile;
+
       if (isImageFile(maybeFile)) {
-        const jpegBlob = await grayscaleCompressToJpegBlob(maybeFile, {
-          maxW: 1600,
-          maxH: 1200,
-          qualityStart: 0.8,
-          qualityMin: 0.5,
-          targetMaxBytes: 2 * 1024 * 1024,
-        });
-        fileToSend = new File([jpegBlob], 'gasto.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+        if (sourceType === 'camera') {
+          // Cámara: convertir a JPG color (evitamos HEIC y mantenemos color)
+          const colorBlob = await colorCompressToJpegBlob(maybeFile, {
+            maxW: 1600,
+            maxH: 1200,
+            qualityStart: 0.85,
+            qualityMin: 0.6,
+            targetMaxBytes: 2 * 1024 * 1024,
+          });
+          fileToSend = new File([colorBlob], 'gasto_camera.jpg', {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+        } else {
+          // Archivo: JPG en blanco y negro
+          const grayBlob = await grayscaleCompressToJpegBlob(maybeFile, {
+            maxW: 1600,
+            maxH: 1200,
+            qualityStart: 0.8,
+            qualityMin: 0.5,
+            targetMaxBytes: 2 * 1024 * 1024,
+          });
+          fileToSend = new File([grayBlob], 'gasto_gris.jpg', {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+        }
       }
+      // Si es PDF → se sube tal cual
 
       // Subida con progreso
       setUploading(true);
@@ -212,6 +254,7 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
         comentario: '',
         archivo: new DataTransfer().files,
       });
+      setSourceType(null);
       onSaved?.();
       onClose();
     } catch (err: any) {
@@ -226,36 +269,44 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
   // UX modal-fullscreen móvil
   function stopClose(e: MouseEvent<HTMLDivElement>) { e.stopPropagation(); }
 
-  // Opciones de tipos
+  // Opciones tipos
   const tiposOptions = useMemo(
     () => (tiposQ.data ?? []).map((t) => ({ value: t.id_tipo_gasto, label: t.descripcion })),
     [tiposQ.data]
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50" role="dialog" aria-modal="true" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
       <div
         onClick={stopClose}
         className="
           w-full md:max-w-4xl bg-white dark:bg-slate-900 shadow-xl
           rounded-t-2xl md:rounded-2xl
-          h-[92vh] md:h-auto md:max-h-[90vh]
+          h-[96vh] md:h-auto md:max-h-[92vh]
           overflow-y-auto
           p-4 md:p-5
         "
       >
         {/* Header */}
-        <div className="mb-3 md:mb-4 flex items-center justify-between sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur z-10 py-1">
+        <div className="mb-3 md:mb-4 flex items-center justify-between sticky top-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur z-10 py-1">
           <h2 className="text-lg md:text-xl font-semibold text-slate-800 dark:text-slate-100">
             Gastos del Reporte #{idReporte}
           </h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            aria-label="Cerrar modal"
-          >
-            Cerrar
-          </button>
+          <div className="flex items-center gap-2">
+            <a href="#gastos-existentes" className="text-xs text-blue-600 hover:underline">Ver gastos existentes</a>
+            <button
+              onClick={onClose}
+              className="rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              aria-label="Cerrar modal"
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
 
         {/* Form */}
@@ -266,7 +317,7 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
             </label>
             <select
               {...register('id_tipo_gasto', { required: true, valueAsNumber: true })}
-              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+              className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
             >
               <option value="">— Seleccionar —</option>
               {tiposOptions.map((opt) => (
@@ -285,7 +336,7 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
               min={0}
               step="1"
               {...register('monto', { required: true, valueAsNumber: true })}
-              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+              className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
             />
             {errors.monto && <p className="mt-1 text-xs text-red-600">Ingresa el monto.</p>}
           </div>
@@ -297,7 +348,7 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
             <input
               type="date"
               {...register('fecha_gasto', { required: true })}
-              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+              className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
             />
             {errors.fecha_gasto && <p className="mt-1 text-xs text-red-600">Selecciona la fecha.</p>}
           </div>
@@ -309,25 +360,55 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
             <input
               type="text"
               {...register('comentario')}
-              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+              className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-800"
+              placeholder="Detalle breve del gasto…"
             />
           </div>
 
-          <div>
+          {/* Acciones de carga (móvil-friendly) */}
+          <div className="space-y-2">
             <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
-              Boleta/Foto (opcional)
+              Comprobante / Foto (opcional)
             </label>
+
+            {/* Botones visibles */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+              >
+                📷 Tomar foto
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+              >
+                🗂️ Elegir archivo
+              </button>
+            </div>
+
+            {/* Inputs ocultos */}
             <input
+              ref={cameraInputRef}
               type="file"
-              accept={accept}
-              name={archivoReg.name}
-              onChange={archivoReg.onChange}
-              onBlur={archivoReg.onBlur}
-              ref={(el) => { archivoReg.ref(el); fileInputRef.current = el; }}
-              className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 p-2 text-sm dark:border-slate-700"
+              accept={acceptCamera}
+              onChange={handleCameraSelect}
+              // @ts-ignore: atributo válido en HTML, no tipado en React
+              capture="environment"
+              className="hidden"
             />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={acceptFile}
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+
             <p className="mt-1 text-xs text-slate-500">
-              Imágenes se convierten a JPG en blanco y negro (máx. 12MB original / ~2MB comprimido).
+              Si tomas foto: se guarda en <b>color</b>. Si eliges imagen de archivos: se convertirá a <b>blanco y negro</b>. PDF se sube tal cual.
             </p>
           </div>
 
@@ -355,6 +436,7 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
                   comentario: '',
                   archivo: new DataTransfer().files,
                 });
+                setSourceType(null);
               }}
               disabled={uploading}
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:hover:bg-slate-800"
@@ -373,8 +455,8 @@ const GastosModal: FC<Props> = ({ idReporte, onClose, onSaved }) => {
 
         <hr className="my-3 md:my-4 border-slate-200 dark:border-slate-800" />
 
-        {/* Listado */}
-        <section>
+        {/* Listado SIEMPRE abajo */}
+        <section id="gastos-existentes">
           <h3 className="mb-2 text-base font-semibold text-slate-800 dark:text-slate-100">Gastos existentes</h3>
 
           {gastosQ.isLoading && <p className="text-sm text-slate-500">Cargando gastos…</p>}
