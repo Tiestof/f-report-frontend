@@ -13,10 +13,10 @@
  *      • Mostrar imagen grande (preferentemente firma dibujada).
  *  - Otros tipos de evidencia:
  *      • Mostrar campos conocidos con N/A si vienen nulos.
- *      • Imagen grande debajo; si falla, mostrar link de descarga.
+ *      • Imagen grande debajo; si falla, sin links (sólo aviso).
  *  - Técnico: nombre completo + RUT.
  *  - Título “F-REPORT” en mayúsculas.
- *  - Usar 'direccion' memoizada en MapBox para eliminar warning.
+ *  - Cabecera: se muestra Dirección (sin mini-mapa).
  *
  * TODO/FIXME:
  *  - Ajustar nombres exactos de campos de dirección si el backend cambia.
@@ -36,7 +36,7 @@ import jsPDF from 'jspdf';
 import api from '../../services/api';
 import { formatISODateToCL } from '../../utils/dateFormat';
 import { formatRUTDisplay } from '../../utils/rutFormatter';
-import { resolveMediaUrl, isImageUrl } from '../../utils/urlResolver';
+import { resolveMediaUrl, isImageUrl, swapUploadsApi } from '../../components/ui/urlResolver';
 
 // ------------------ Tipos tolerantes ------------------
 type Evidencia = {
@@ -146,6 +146,12 @@ function kvListAll(
   return items;
 }
 
+function nowStamp() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
 // ------------------ Hook de datos ------------------
 function useReporteCompleto(id: number) {
   const [reporte, setReporte] = useState<Reporte | null>(null);
@@ -214,7 +220,8 @@ async function exportInformeToPDF(
   portada: HTMLElement,
   evidBlocks: HTMLElement[],
   gastosBlocks: HTMLElement[],
-  incluirGastos: boolean
+  incluirGastos: boolean,
+  fileName: string
 ) {
   const pdf = new jsPDF('p', 'mm', 'a4');
   const A4_W = 210;
@@ -286,7 +293,7 @@ async function exportInformeToPDF(
     }
   }
 
-  pdf.save('informe-reporte.pdf');
+  pdf.save(fileName);
 }
 
 // ------------------ UI bloques ------------------
@@ -303,19 +310,11 @@ const SubTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </h4>
 );
 
-const MapBox: React.FC<{ direccion?: string }> = ({ direccion }) => (
-  <div className="mt-2 w-full rounded-xl border border-dashed border-zinc-300 bg-white p-3 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-400">
-    <p className="mb-1 font-semibold text-zinc-700 dark:text-zinc-200">Mapa / Ubicación</p>
-    <p className="truncate">{direccion || '—'}</p>
-    <div className="mt-2 h-28 w-full rounded-lg bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-zinc-700 dark:to-zinc-800" />
-  </div>
-);
-
 /** Bloque de evidencia con manejo especial para firma digital (id_tipo_evidencia = 3) */
 const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
   const isFirma = Number(ev.id_tipo_evidencia) === 3;
 
-  // misma estrategia que en modales: resolvemos URL y validamos si es imagen
+  // normalizamos URL igual que en los modales
   const rawUrl =
     ev.url ||
     ev.url_imagen ||
@@ -324,14 +323,17 @@ const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
     ev.imagen_url ||
     null;
 
-  const mediaUrl = resolveMediaUrl(rawUrl || '');
-  const showImg = isImageUrl(mediaUrl);
+  const initialUrl = resolveMediaUrl(rawUrl || '');
+  const [imgSrc, setImgSrc] = useState<string | null>(initialUrl);
+  const [triedSwap, setTriedSwap] = useState(false);
 
-  // Mapeos
+  const showImg = isImageUrl(imgSrc || undefined);
+
+  // Mapeos: firma digital muestra sólo 2 campos
   const baseMap: Record<string, string> = isFirma
     ? {
         descripcion_tipo_evidencia: 'Tipo de evidencia',
-        modelo: 'Nombre quien recibe el trabajo', // “disfrazado” para firma
+        modelo: 'Nombre quien recibe el trabajo',
       }
     : {
         descripcion_tipo_evidencia: 'Tipo de evidencia',
@@ -353,6 +355,7 @@ const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
 
   return (
     <div className="mx-auto w-full max-w-3xl rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+      {/* Datos */}
       {kv.length > 0 && (
         <div className="mb-3 grid grid-cols-1 gap-x-6 gap-y-1 text-[13px] md:grid-cols-2">
           {kv.map(([label, value], idx) => (
@@ -364,49 +367,27 @@ const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
         </div>
       )}
 
-      <div className="flex flex-col items-center justify-center gap-2">
-        {mediaUrl && showImg ? (
-          <>
-            {/* eslint-disable-next-line jsx-a11y/alt-text */}
-            <img
-              src={mediaUrl}
-              className="max-h-[900px] max-w-full rounded-lg object-contain"
-              crossOrigin="anonymous"
-              referrerPolicy="no-referrer"
-              onError={(e) => {
-                (e.currentTarget.style.display = 'none');
-                const link = (e.currentTarget.nextElementSibling as HTMLAnchorElement | null);
-                if (link) link.style.display = 'inline-flex';
-              }}
-            />
-            <a
-              href={mediaUrl}
-              download
-              target="_blank"
-              rel="noreferrer"
-              className="hidden items-center gap-2 text-sm text-blue-600 hover:underline"
-              title="Descargar evidencia"
-            >
-              Descargar archivo
-              <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M14 3l7 7l-1.41 1.41L15 7.83V20h-2V7.83l-4.59 4.58L7 10z"/></svg>
-            </a>
-          </>
+      {/* Imagen (sin links). Si falla, intentamos swap /uploads ↔ /api/uploads una sola vez */}
+      <div className="flex items-center justify-center">
+        {imgSrc && showImg ? (
+          // eslint-disable-next-line jsx-a11y/alt-text
+          <img
+            src={imgSrc}
+            className="max-h-[900px] max-w-full rounded-lg object-contain"
+            crossOrigin="anonymous"
+            referrerPolicy="no-referrer"
+            onError={() => {
+              if (!triedSwap) {
+                setTriedSwap(true);
+                setImgSrc((s) => (s ? swapUploadsApi(s) : s));
+              } else {
+                setImgSrc(null); // ocultar si también falla el alternativo
+              }
+            }}
+          />
         ) : (
           <div className="flex h-64 w-full items-center justify-center rounded-lg bg-zinc-100 text-zinc-500 dark:bg-zinc-800">
-            {mediaUrl ? (
-              <a
-                href={mediaUrl}
-                download
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
-              >
-                Descargar archivo
-                <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M14 3l7 7l-1.41 1.41L15 7.83V20h-2V7.83l-4.59 4.58L7 10z"/></svg>
-              </a>
-            ) : (
-              'Sin imagen'
-            )}
+            {initialUrl ? 'Archivo no disponible' : 'Sin imagen'}
           </div>
         )}
       </div>
@@ -423,8 +404,11 @@ const GastoBlock: React.FC<{ g: Gasto }> = ({ g }) => {
     g.imagen_url ||
     null;
 
-  const mediaUrl = resolveMediaUrl(raw || '');
-  const asImg = isImageUrl(mediaUrl);
+  const initialUrl = resolveMediaUrl(raw || '');
+  const [imgSrc, setImgSrc] = useState<string | null>(initialUrl);
+  const [triedSwap, setTriedSwap] = useState(false);
+
+  const asImg = isImageUrl(imgSrc || undefined);
 
   const kv = kvListAll(
     {
@@ -456,39 +440,29 @@ const GastoBlock: React.FC<{ g: Gasto }> = ({ g }) => {
         ))}
       </div>
 
-      <div className="flex flex-col items-center justify-center">
-        {mediaUrl ? (
-          <>
-            {asImg ? (
-              // eslint-disable-next-line jsx-a11y/alt-text
-              <img
-                src={mediaUrl}
-                className="max-h-[700px] max-w-full rounded-lg object-contain"
-                crossOrigin="anonymous"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  (e.currentTarget.style.display = 'none');
-                  const link = (e.currentTarget.nextElementSibling as HTMLAnchorElement | null);
-                  if (link) link.style.display = 'inline-flex';
-                }}
-              />
-            ) : (
-              <div className="flex h-40 w-full items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-800">
-                Archivo adjunto disponible
-              </div>
-            )}
-            <a
-              href={mediaUrl}
-              download
-              target="_blank"
-              rel="noreferrer"
-              className="mt-3 inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
-              title="Descargar comprobante"
-            >
-              Descargar comprobante
-              <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M14 3l7 7l-1.41 1.41L15 7.83V20h-2V7.83l-4.59 4.58L7 10z"/></svg>
-            </a>
-          </>
+      <div className="flex items-center justify-center">
+        {imgSrc ? (
+          asImg ? (
+            // eslint-disable-next-line jsx-a11y/alt-text
+            <img
+              src={imgSrc}
+              className="max-h-[700px] max-w-full rounded-lg object-contain"
+              crossOrigin="anonymous"
+              referrerPolicy="no-referrer"
+              onError={() => {
+                if (!triedSwap) {
+                  setTriedSwap(true);
+                  setImgSrc((s) => (s ? swapUploadsApi(s) : s));
+                } else {
+                  setImgSrc(null);
+                }
+              }}
+            />
+          ) : (
+            <div className="flex h-40 w-full items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-800">
+              Archivo adjunto disponible (no es imagen)
+            </div>
+          )
         ) : (
           <div className="flex h-40 w-full items-center justify-center rounded-lg bg-zinc-100 text-zinc-500 dark:bg-zinc-800">
             Sin archivo de comprobante
@@ -635,7 +609,8 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
           )
         : [];
 
-      await exportInformeToPDF(portadaRef.current, evidBlocks, gastoBlocks, incluirGastos);
+      const fileName = `Informe_Reporte_${reporte?.id_reporte ?? 'X'}_${nowStamp()}.pdf`;
+      await exportInformeToPDF(portadaRef.current, evidBlocks, gastoBlocks, incluirGastos, fileName);
       onExported?.();
     };
 
@@ -705,10 +680,6 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
                 ))}
                 <Field label="Dirección">{direccion || 'N/A'}</Field>
               </div>
-            </div>
-
-            <div>
-              <MapBox direccion={direccion || undefined} />
             </div>
           </div>
 
