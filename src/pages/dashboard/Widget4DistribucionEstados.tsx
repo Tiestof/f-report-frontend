@@ -3,11 +3,15 @@
  * Widget 4 - Distribucion de estados
  * Ruta: src/pages/dashboard/Widget4DistribucionEstados.tsx
  *
- * Logica:
+ * Lógica:
  *  - Obtiene los reportes del backend (/reportes) y filtra por el rango indicado.
  *  - Agrupa por estado utilizando la descripcion disponible (estado_servicio) y
  *    usa id_estado_servicio como respaldo para mapear etiquetas conocidas.
  *  - Calcula cantidades y porcentajes reales sobre la base de los datos de reportes.
+ *
+ * Fixes:
+ *  - TS2362: coerción segura de percent/value a number en label/Tooltip.
+ *  - Guards para evitar NaN cuando total = 0 o percent undefined.
  * ============================================================
  */
 
@@ -97,7 +101,7 @@ function normalizeEstado(s: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-/** Obtiene color por estado con fallback ciclico */
+/** Obtiene color por estado con fallback cíclico */
 function getEstadoColor(estado: string, idx: number) {
   const key = normalizeEstado(estado);
   return ESTADO_COLORS[key] || FALLBACK_PALETTE[idx % FALLBACK_PALETTE.length];
@@ -183,7 +187,7 @@ export default function Widget4DistribucionEstados({
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
       <h3 className="text-base font-semibold mb-2 text-gray-900 dark:text-gray-100">
-        Total reportes por estado - Rango {rangeDays} dia(s)
+        Total reportes por estado - Rango {rangeDays} día(s)
       </h3>
 
       {loading ? (
@@ -204,9 +208,14 @@ export default function Widget4DistribucionEstados({
                 cy="50%"
                 outerRadius={100}
                 labelLine={false}
-                label={({ name, value, percent }) =>
-                  `${name}: ${value} (${Math.round((percent || 0) * 100)}%)`
-                }
+                // FIX TS2362: forzamos percent a number seguro antes de multiplicar
+                label={(props: any) => {
+                  const name: string = props?.name ?? "";
+                  const valueNum: number = Number(props?.value) || 0;
+                  const percentNum: number = typeof props?.percent === "number" ? props.percent : 0;
+                  const pct = Math.round(percentNum * 100);
+                  return `${name}: ${valueNum} (${pct}%)`;
+                }}
               >
                 {chartData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.fill} />
@@ -214,12 +223,17 @@ export default function Widget4DistribucionEstados({
               </Pie>
 
               <Tooltip
-                formatter={(value: any, name: any, props: any) => {
-                  const pct =
-                    props && typeof props.payload?.percent === "number"
-                      ? Math.round(props.payload.percent * 100)
-                      : Math.round(((value as number) / total) * 100);
-                  return [`${value} (${pct}%)`, name];
+                // FIX: coerción segura de value y percent para evitar NaN y errores de tipo
+                formatter={(value: any, name: any, tooltipProps: any) => {
+                  const valueNum = Number(value) || 0;
+                  const percentNum: number =
+                    typeof tooltipProps?.payload?.percent === "number"
+                      ? tooltipProps.payload.percent
+                      : total > 0
+                      ? valueNum / total
+                      : 0;
+                  const pct = Math.round(percentNum * 100);
+                  return [`${valueNum} (${pct}%)`, name];
                 }}
               />
             </PieChart>
@@ -229,6 +243,3 @@ export default function Widget4DistribucionEstados({
     </div>
   );
 }
-
-
-
