@@ -7,14 +7,16 @@
  *  - Exportar a PDF (html2canvas + jsPDF), evidencias 1 por página.
  *
  * Correcciones clave:
- *  - Reincorporado forwardRef y el handle exportable: InformeReporteHandle.
- *  - Props: autoExport, showExportButton, defaultShowGastos, onExported.
- *  - Imágenes evidencias/gastos visibles en UI y embebidas en PDF:
- *      * Resolución de URL compatible con los modales (ruta_archivo, image_url, etc.)
- *  - Tipo evidencia: si id_tipo_evidencia === 3 (Firma Digital),
- *      'modelo' se visualiza como “Nombre quien recibe el trabajo”.
+ *  - Reutiliza resolveMediaUrl / isImageUrl (como en los modales) para mostrar imágenes.
+ *  - Firma digital (id_tipo_evidencia === 3):
+ *      • Mostrar sólo "Tipo de evidencia" y "Nombre quien recibe el trabajo" (desde modelo).
+ *      • Mostrar imagen grande (preferentemente firma dibujada).
+ *  - Otros tipos de evidencia:
+ *      • Mostrar campos conocidos con N/A si vienen nulos.
+ *      • Imagen grande debajo; si falla, mostrar link de descarga.
  *  - Técnico: nombre completo + RUT.
  *  - Título “F-REPORT” en mayúsculas.
+ *  - Usar 'direccion' memoizada en MapBox para eliminar warning.
  *
  * TODO/FIXME:
  *  - Ajustar nombres exactos de campos de dirección si el backend cambia.
@@ -34,6 +36,7 @@ import jsPDF from 'jspdf';
 import api from '../../services/api';
 import { formatISODateToCL } from '../../utils/dateFormat';
 import { formatRUTDisplay } from '../../utils/rutFormatter';
+import { resolveMediaUrl, isImageUrl } from '../../utils/urlResolver';
 
 // ------------------ Tipos tolerantes ------------------
 type Evidencia = {
@@ -44,15 +47,11 @@ type Evidencia = {
   url_imagen?: string | null;
   comprobante_url?: string | null;
   url_comprobante?: string | null;
-  image_url?: string | null;     // extra: por compatibilidad con modales
-  ruta_archivo?: string | null;  // extra: por compatibilidad con modales
-  archivo?: string | null;       // extra genérico
-  path?: string | null;          // extra genérico
+  imagen_url?: string | null;
 
   // Catálogo de tipo
   id_tipo_evidencia?: number | null; // 3 -> Firma Digital
   descripcion_tipo_evidencia?: string | null;
-  tipo_evidencia?: string | null;
 
   // Metadatos
   modelo?: string | null;            // En firma digital: nombre firmante
@@ -81,10 +80,7 @@ type Gasto = {
   url_imagen?: string | null;
   url_comprobante?: string | null;
   comprobante_url?: string | null;
-  image_url?: string | null;     // extra
-  ruta_archivo?: string | null;  // extra
-  archivo?: string | null;       // extra
-  path?: string | null;          // extra
+  imagen_url?: string | null;
 
   [k: string]: any;
 };
@@ -132,51 +128,7 @@ export type InformeReporteHandle = {
   exportPDF: () => Promise<void>;
 };
 
-// ------------------ Helpers locales (robustos y sin dependencias nuevas) ------------------
-function isImageUrl(u?: string | null): boolean {
-  if (!u) return false;
-  if (u.startsWith('data:image/')) return true;
-  return /\.(png|jpe?g|gif|bmp|webp|svg)(\?.*)?$/i.test(u);
-}
-
-/**
- * Resuelve URL de media como en los modales:
- * - Si viene una URL absoluta/dataURL, se devuelve tal cual.
- * - Si viene un path relativo (ruta_archivo, archivo, path), se prefija baseURL del api.
- */
-function resolveMediaUrlLikeModals(item: {
-  url?: string | null;
-  url_imagen?: string | null;
-  url_comprobante?: string | null;
-  comprobante_url?: string | null;
-  image_url?: string | null;
-  ruta_archivo?: string | null;
-  archivo?: string | null;
-  path?: string | null;
-}): string | null {
-  const candidates = [
-    item.url,
-    item.url_imagen,
-    item.url_comprobante,
-    item.comprobante_url,
-    item.image_url,
-    item.ruta_archivo,
-    item.archivo,
-    item.path,
-  ].filter(Boolean) as string[];
-
-  if (candidates.length === 0) return null;
-
-  const raw = candidates[0]!;
-  // Si ya es absoluta o dataURL
-  if (/^(data:|https?:\/\/)/i.test(raw)) return raw;
-
-  // Relativa -> prefijar baseURL
-  const base = (api.defaults.baseURL || '').replace(/\/+$/, '');
-  const path = raw.replace(/^\/+/, '');
-  return base ? `${base}/${path}` : `/${path}`;
-}
-
+// ------------------ Helpers locales ------------------
 function kvListAll(
   obj: Record<string, any>,
   map: Record<string, string>
@@ -185,6 +137,10 @@ function kvListAll(
   Object.entries(map).forEach(([key, label]) => {
     let v = obj[key];
     if (v === undefined || v === null || v === '') v = 'N/A';
+    // Fechas a formato CL
+    if (String(key).toLowerCase().includes('fecha') && v !== 'N/A') {
+      v = formatISODateToCL(String(v));
+    }
     items.push([label, String(v)]);
   });
   return items;
@@ -276,7 +232,7 @@ async function exportInformeToPDF(
   const h1 = (c1.height * w1) / c1.width;
   pdf.addImage(img1, 'PNG', 10, 10, w1, Math.min(h1, A4_H - 20));
 
-  // Evidencias: 1 por página
+  // Evidencias: una por página
   for (const node of evidBlocks) {
     const c = await html2canvas(node, {
       scale: 2,
@@ -302,7 +258,7 @@ async function exportInformeToPDF(
     pdf.addImage(img, 'PNG', x, y, w, h);
   }
 
-  // Gastos (opcional): cada gasto en su propia página
+  // Gastos (opcional): cada gasto como tarjeta en su propia página
   if (incluirGastos) {
     for (const node of gastosBlocks) {
       const c = await html2canvas(node, {
@@ -355,53 +311,54 @@ const MapBox: React.FC<{ direccion?: string }> = ({ direccion }) => (
   </div>
 );
 
+/** Bloque de evidencia con manejo especial para firma digital (id_tipo_evidencia = 3) */
 const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
   const isFirma = Number(ev.id_tipo_evidencia) === 3;
 
-  // Resolver URL como en los modales
-  const mediaUrl = resolveMediaUrlLikeModals(ev);
-  const showImg = isImageUrl(mediaUrl || undefined);
+  // misma estrategia que en modales: resolvemos URL y validamos si es imagen
+  const rawUrl =
+    ev.url ||
+    ev.url_imagen ||
+    ev.comprobante_url ||
+    ev.url_comprobante ||
+    ev.imagen_url ||
+    null;
 
-  // Etiquetas/valores
-  const tipoLabel =
-    ev.descripcion_tipo_evidencia ||
-    ev.tipo_evidencia ||
-    (isFirma ? 'Firma digital' : 'N/A');
+  const mediaUrl = resolveMediaUrl(rawUrl || '');
+  const showImg = isImageUrl(mediaUrl);
 
-  const mapBase: Record<string, string> = {
-    descripcion_tipo_evidencia: 'Tipo de evidencia',
-    fecha: 'Fecha',
-    fecha_subida: 'Fecha de subida',
-    numero_serie: 'N° Serie',
-    serie: 'Serie',
-    ip: 'IP',
-    ipv4: 'IPv4',
-    ipv6: 'IPv6',
-    mac: 'MAC',
-    macadd: 'MAC',
-    nombre_maquina: 'Nombre máquina',
-    descripcion: 'Descripción',
-  };
+  // Mapeos
+  const baseMap: Record<string, string> = isFirma
+    ? {
+        descripcion_tipo_evidencia: 'Tipo de evidencia',
+        modelo: 'Nombre quien recibe el trabajo', // “disfrazado” para firma
+      }
+    : {
+        descripcion_tipo_evidencia: 'Tipo de evidencia',
+        fecha: 'Fecha',
+        fecha_subida: 'Fecha de subida',
+        numero_serie: 'N° Serie',
+        serie: 'Serie',
+        ip: 'IP',
+        ipv4: 'IPv4',
+        ipv6: 'IPv6',
+        mac: 'MAC',
+        macadd: 'MAC',
+        nombre_maquina: 'Nombre máquina',
+        descripcion: 'Descripción',
+        modelo: 'Modelo',
+      };
 
-  const info: Record<string, any> = { ...ev, descripcion_tipo_evidencia: tipoLabel };
-  const map: Record<string, string> = { ...mapBase };
-
-  if (ev.modelo) {
-    map['modelo'] = isFirma ? 'Nombre quien recibe el trabajo' : 'Modelo';
-  }
-
-  const kv = kvListAll(info, map);
+  const kv = kvListAll({ ...ev }, baseMap);
 
   return (
     <div className="mx-auto w-full max-w-3xl rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
       {kv.length > 0 && (
         <div className="mb-3 grid grid-cols-1 gap-x-6 gap-y-1 text-[13px] md:grid-cols-2">
-          {kv.map(([k, v]) => (
-            <div key={k} className="flex gap-2">
-              <span className="w-56 shrink-0 text-zinc-500">{k}</span>
-              <span className="font-medium text-zinc-800 dark:text-zinc-100">
-                {k.toLowerCase().includes('fecha') ? formatISODateToCL(v) : v}
-              </span>
+          {kv.map(([label, value], idx) => (
+            <div key={`${label}-${idx}`} className="flex gap-2">
+              <span className="w-56 shrink-0 text-zinc-500">{label}</span>
+              <span className="font-medium text-zinc-800 dark:text-zinc-100">{value}</span>
             </div>
           ))}
         </div>
@@ -413,7 +370,7 @@ const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
             {/* eslint-disable-next-line jsx-a11y/alt-text */}
             <img
               src={mediaUrl}
-              className="max-h-[800px] max-w-full rounded-lg object-contain"
+              className="max-h-[900px] max-w-full rounded-lg object-contain"
               crossOrigin="anonymous"
               referrerPolicy="no-referrer"
               onError={(e) => {
@@ -458,9 +415,16 @@ const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
 };
 
 const GastoBlock: React.FC<{ g: Gasto }> = ({ g }) => {
-  // Resolver como modales
-  const mediaUrl = resolveMediaUrlLikeModals(g);
-  const asImg = isImageUrl(mediaUrl || undefined);
+  const raw =
+    g.url ||
+    g.url_imagen ||
+    g.url_comprobante ||
+    g.comprobante_url ||
+    g.imagen_url ||
+    null;
+
+  const mediaUrl = resolveMediaUrl(raw || '');
+  const asImg = isImageUrl(mediaUrl);
 
   const kv = kvListAll(
     {
@@ -472,7 +436,7 @@ const GastoBlock: React.FC<{ g: Gasto }> = ({ g }) => {
               style: 'currency',
               currency: 'CLP',
             }),
-      fecha: g.fecha ? formatISODateToCL(g.fecha) : null,
+      fecha: g.fecha,
     },
     {
       descripcion: 'Descripción',
@@ -484,8 +448,8 @@ const GastoBlock: React.FC<{ g: Gasto }> = ({ g }) => {
   return (
     <div className="mx-auto w-full max-w-3xl rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
       <div className="mb-3 grid grid-cols-1 gap-x-6 gap-y-1 text-[13px] md:grid-cols-2">
-        {kv.map(([k, v]) => (
-          <div key={k} className="flex gap-2">
+        {kv.map(([k, v], i) => (
+          <div key={`${k}-${i}`} className="flex gap-2">
             <span className="w-56 shrink-0 text-zinc-500">{k}</span>
             <span className="font-medium text-zinc-800 dark:text-zinc-100">{v}</span>
           </div>
@@ -499,9 +463,14 @@ const GastoBlock: React.FC<{ g: Gasto }> = ({ g }) => {
               // eslint-disable-next-line jsx-a11y/alt-text
               <img
                 src={mediaUrl}
-                className="max-h-[600px] max-w-full rounded-lg object-contain"
+                className="max-h-[700px] max-w-full rounded-lg object-contain"
                 crossOrigin="anonymous"
                 referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.currentTarget.style.display = 'none');
+                  const link = (e.currentTarget.nextElementSibling as HTMLAnchorElement | null);
+                  if (link) link.style.display = 'inline-flex';
+                }}
               />
             ) : (
               <div className="flex h-40 w-full items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-800">
@@ -576,6 +545,14 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
     const evidContainerRef = useRef<HTMLDivElement | null>(null);
     const gastosContainerRef = useRef<HTMLDivElement | null>(null);
 
+    const direccion = useMemo(() => {
+      if (!reporte) return '';
+      const parts = [reporte.direccion_calle, reporte.direccion_comuna, reporte.direccion_ciudad]
+        .filter(Boolean)
+        .join(', ');
+      return parts || '';
+    }, [reporte]);
+
     const Header = plantilla === 'A' ? HeaderA : HeaderB;
 
     const datosReporte = useMemo(
@@ -583,7 +560,7 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
         kvListAll(
           {
             id_reporte: reporte?.id_reporte,
-            fecha_reporte: reporte?.fecha_reporte ? formatISODateToCL(reporte.fecha_reporte) : null,
+            fecha_reporte: reporte?.fecha_reporte,
             estado_servicio: reporte?.estado_servicio,
             observaciones: reporte?.observaciones,
           },
@@ -726,30 +703,12 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
                     {v}
                   </Field>
                 ))}
-                <Field label="Dirección">
-                  {[
-                    reporte.direccion_calle,
-                    reporte.direccion_comuna,
-                    reporte.direccion_ciudad,
-                  ]
-                    .filter(Boolean)
-                    .join(', ') || 'N/A'}
-                </Field>
+                <Field label="Dirección">{direccion || 'N/A'}</Field>
               </div>
             </div>
 
             <div>
-              <MapBox
-                direccion={
-                  [
-                    reporte.direccion_calle,
-                    reporte.direccion_comuna,
-                    reporte.direccion_ciudad,
-                  ]
-                    .filter(Boolean)
-                    .join(', ') || undefined
-                }
-              />
+              <MapBox direccion={direccion || undefined} />
             </div>
           </div>
 
@@ -798,7 +757,7 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
           )}
         </div>
 
-        {/* Gastos detallados (solo si incluirGastos) */}
+        {/* Gastos detallados (sólo si incluirGastos) */}
         {incluirGastos && (
           <div ref={gastosContainerRef} className="space-y-6">
             {(gastos || []).map((g) => (
