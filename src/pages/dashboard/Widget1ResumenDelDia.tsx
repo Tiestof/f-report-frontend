@@ -84,7 +84,7 @@ export default function Widget1ResumenDelDia() {
       Number(totalDesdeEstados) || 0,
       Number(totalDesdeReportes) || 0
     );
-    dbg.group('✅ KPI Total Hoy (resuelto)');
+    dbg.group(' KPI Total Hoy (resuelto)');
     dbg.log({ totalHoyApi, totalDesdeEstados, totalDesdeReportes, totalFinal: max });
     dbg.end();
     return max;

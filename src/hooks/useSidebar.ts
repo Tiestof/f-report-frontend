@@ -26,14 +26,14 @@ const useSidebar = (): SidebarState => {
   const [isOpen, setIsOpen] = useState<boolean>(getInitialState);
   const [isMobile, setIsMobile] = useState<boolean>(false);
 
-  // 📌 Guardar estado en localStorage cuando cambia
+  //  Guardar estado en localStorage cuando cambia
   useEffect(() => {
     if (!isMobile) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(isOpen));
     }
   }, [isOpen, isMobile]);
 
-  // 📌 Detectar tamaño de pantalla para modo mobile
+  //  Detectar tamaño de pantalla para modo mobile
   const handleResize = useCallback(() => {
     const mobileView = window.innerWidth <= 768;
     setIsMobile(mobileView);
@@ -51,7 +51,7 @@ const useSidebar = (): SidebarState => {
     return () => window.removeEventListener('resize', handleResize);
   }, [handleResize]);
 
-  // 📌 Funciones de control
+  //  Funciones de control
   const toggleSidebar = () => setIsOpen((prev) => !prev);
   const closeSidebar = () => setIsOpen(false);
 

@@ -21,7 +21,7 @@ interface MenuItem {
   icon: React.ElementType;// Icono asociado
 }
 
-/* 📌 Menú para SUPERVISOR (tipo 2) */
+/*  Menú para SUPERVISOR (tipo 2) */
 export const menuSupervisor: MenuItem[] = [
   { label: 'Home', path: '/dashboard-supervisor', icon: HomeIcon },
   { label: 'Reportes', path: '/supervisor/reportes', icon: DocumentChartBarIcon },
@@ -33,7 +33,7 @@ export const menuSupervisor: MenuItem[] = [
   { label: 'Ayuda', path: '/ayuda', icon: QuestionMarkCircleIcon },
 ];
 
-/* 📌 Menú para TÉCNICO (tipo 1) */
+/*  Menú para TÉCNICO (tipo 1) */
 export const menuTecnico: MenuItem[] = [
   { label: 'Home', path: '/dashboard-tecnico', icon: HomeIcon },
   { label: 'Reportes', path: '/tecnico/reportes', icon: DocumentChartBarIcon },

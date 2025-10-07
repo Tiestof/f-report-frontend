@@ -41,7 +41,7 @@ export default function PasswordInput({
           className={`border p-2 rounded-md w-full pr-10 focus:outline-none focus:ring-2 transition-all 
             ${isValid ? 'border-gray-300 focus:ring-blue-400' : 'border-red-500 focus:ring-red-400'}`}
         />
-        {/* ✅ Un solo botón que cambia el ícono */}
+        {/* Un solo botón que cambia el ícono */}
         <button
           type="button"
           onClick={() => setShowPassword(!showPassword)}

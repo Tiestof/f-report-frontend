@@ -145,12 +145,12 @@ export default function TecnicoDashboard() {
         setCargando(true);
         setError(null);
 
-        dbg.group('🔎 RUT');
+        dbg.group(' RUT');
         dbg.log('rut (store):', rut, 'rut(normalized):', normalizeRut(rut));
         dbg.end();
 
         // 1) Endpoint HOY
-        dbg.group('🌐 GET /dashboard/tecnico/reportes-hoy/:rut');
+        dbg.group(' GET /dashboard/tecnico/reportes-hoy/:rut');
         const respHoy = await api.get<ApiReporte[]>(`/dashboard/tecnico/reportes-hoy/${normalizeRut(rut)}`);
         const hoyRows = (respHoy?.data || []).map(toUi);
         setHoyApi(hoyRows);
@@ -159,7 +159,7 @@ export default function TecnicoDashboard() {
         dbg.end();
 
         // 2) Todos
-        dbg.group('🌐 GET /reportes');
+        dbg.group(' GET /reportes');
         const respTodos = await api.get<ApiReporte[]>(`/reportes`);
         const allRows = (respTodos?.data || []).map(toUi);
         setTodos(allRows);
@@ -175,7 +175,7 @@ export default function TecnicoDashboard() {
     })();
   }, [rut]);
 
-  // 🔢 KPI HOY -- endpoint con fallback a /reportes
+  //  KPI HOY -- endpoint con fallback a /reportes
   const totalHoy = useMemo(() => {
     const viaEndpoint = hoyApi.filter(r => esMio(r, rut) && r._fecha === hoyISO).length;
     const viaTodos = todos.filter(r => esMio(r, rut) && r._fecha === hoyISO).length;
@@ -186,7 +186,7 @@ export default function TecnicoDashboard() {
     return total;
   }, [hoyApi, todos, rut, hoyISO]);
 
-  // 📅 Proximos hasta viernes (HOY ∪ mañana→viernes)
+  //  Proximos hasta viernes (HOY ∪ mañana→viernes)
   const proximosSemana = useMemo(() => {
     const hoySolo = [
       ...hoyApi.filter(r => esMio(r, rut) && r._fecha === hoyISO),
@@ -205,14 +205,14 @@ export default function TecnicoDashboard() {
         : a._fecha.localeCompare(b._fecha)
     );
 
-    dbg.group('📅 Derivado: proximosSemana (HOY ∪ mañana→viernes)');
+    dbg.group(' Derivado: proximosSemana (HOY ∪ mañana→viernes)');
     dbg.log('hoySolo:', hoySolo.length, 'mañana→viernes:', manianaAViernes.length, 'merged(unique):', res.length);
     dbg.table(res.slice(0, 8).map(r => ({ id: r.id_reporte, _fecha: r._fecha, hora: r.hora_inicio })));
     dbg.end();
     return res;
   }, [hoyApi, todos, rut, hoyISO, finSemanaISO]);
 
-  // ⏭️ Proximo servicio
+  //  Proximo servicio
   const proximoServicio = useMemo(() => {
     const candidatos = [...hoyApi, ...todos]
       .filter(r => esMio(r, rut))
@@ -225,14 +225,14 @@ export default function TecnicoDashboard() {
       );
     const first = candidatos[0] || null;
 
-    dbg.group('⏭️ Derivado: proximoServicio');
+    dbg.group(' Derivado: proximoServicio');
     dbg.log('futuros total:', candidatos.length);
     dbg.table(candidatos.slice(0, 5).map(r => ({ id: r.id_reporte, _fecha: r._fecha, hora: r.hora_inicio, estado: r.estado_servicio })));
     dbg.end();
     return first;
   }, [hoyApi, todos, rut, hoyISO, minHoy]);
 
-  // 📊 Estados (Ultimos 31 dias)
+  //  Estados (Ultimos 31 dias)
   const estados31d = useMemo(() => {
     const desde = new Date(ahora);
     desde.setDate(desde.getDate() - 31);

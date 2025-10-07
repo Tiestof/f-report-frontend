@@ -59,7 +59,7 @@ export async function uploadGasto(
   onProgress?: (p: number) => void
 ): Promise<{ ok: boolean; data?: any }> {
   const fd = new FormData();
-  // ⚠️ IMPORTANTE: estos campos deben ir ANTES del file para que Multer los vea en req.body (como en evidencias)
+  // IMPORTANTE: estos campos deben ir ANTES del file para que Multer los vea en req.body (como en evidencias)
   fd.append('id_reporte', String(payload.id_reporte));
   fd.append('id_tipo_gasto', String(payload.id_tipo_gasto));
   fd.append('monto', String(payload.monto));

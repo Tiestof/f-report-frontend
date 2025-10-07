@@ -14,7 +14,7 @@ import UserHeader from './UserHeader';
 import { menuSupervisor, menuTecnico } from '../../utils/menuConfig';
 import { helpConfig } from '../../utils/helpConfig';
 import useAuthStore from '../../store/authStore';
-// ⚠️ Se elimina HelpTooltip en el botón para no mostrar tooltip hover
+//  Se elimina HelpTooltip en el botón para no mostrar tooltip hover
 import { useThemeStore } from '../../store/themeStore';
 import { SunIcon, MoonIcon, QuestionMarkCircleIcon } from '@heroicons/react/24/outline';
 
@@ -39,8 +39,8 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
 
   // Debug de tema
   useEffect(() => {
-    console.log('🌙 Estado actual darkMode:', darkMode);
-    console.log('📌 Clase dark aplicada en <html>?', document.documentElement.classList.contains('dark'));
+    console.log(' Estado actual darkMode:', darkMode);
+    console.log(' Clase dark aplicada en <html>?', document.documentElement.classList.contains('dark'));
   }, [darkMode]);
 
   const handleMenuClick = (path: string, isHelp = false) => {
@@ -89,7 +89,7 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
             const isActive = location.pathname === item.path;
             const isHelp = item.label === 'Ayuda';
 
-            // ✅ Forzar ícono correcto para Ayuda cuando está colapsado/expandido
+            //  Forzar ícono correcto para Ayuda cuando está colapsado/expandido
             const IconComp = isHelp ? QuestionMarkCircleIcon : item.icon;
 
             return (
@@ -110,7 +110,7 @@ const Sidebar: FC<SidebarProps> = ({ isOpen, isMobile, toggleSidebar, closeSideb
                     </span>
                   )}
 
-                  {/* ❌ Se elimina HelpTooltip dentro del botón para no mostrar tooltip hover */}
+                  {/*  Se elimina HelpTooltip dentro del botón para no mostrar tooltip hover */}
                 </button>
               </div>
             );

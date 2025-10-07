@@ -5,7 +5,7 @@
  * Nota: Normalizamos el RUT (dejando solo dígitos) antes de enviarlo a la API.
  */
 
-import api from './api'; // ✅ Instancia con interceptores (baseURL debería ser /api en prod)
+import api from './api'; // Instancia con interceptores (baseURL debería ser /api en prod)
 
 interface LoginResponse {
   mensaje: string;
@@ -34,7 +34,7 @@ const normalizeRut = (rut: string) => rut.replace(/\D/g, '');
  */
 export async function login(rut: string, clave: string): Promise<LoginResponse> {
   try {
-    const rutLimpio = normalizeRut(rut);            // 👈 normalización aquí
+    const rutLimpio = normalizeRut(rut);            // normalización 
     const response = await api.post('/auth/login', { rut: rutLimpio, clave });
     return response.data;
   } catch (error: any) {

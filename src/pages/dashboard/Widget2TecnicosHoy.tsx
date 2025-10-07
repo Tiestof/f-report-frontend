@@ -98,7 +98,7 @@ export default function Widget2TecnicosHoy() {
         setItems(tecnicos);
         setReportes(repAll);
 
-        dbg.group('🧭 Widget2TecnicosHoy — DEBUG');
+        dbg.group(' Widget2TecnicosHoy — DEBUG');
         dbg.log('Hoy:', hoy);
         dbg.log('Técnicos (sample):'); dbg.table(tecnicos.slice(0, 6));
         dbg.log('Reportes (sample):'); dbg.table(repAll.slice(0, 6).map(r => ({
@@ -139,7 +139,7 @@ export default function Widget2TecnicosHoy() {
       rec.horas.sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
     }
 
-    dbg.group('📌 asignadosDesdeReportes');
+    dbg.group(' asignadosDesdeReportes');
     dbg.table(Array.from(map.values()).slice(0, 10));
     dbg.end();
 
@@ -153,7 +153,7 @@ export default function Widget2TecnicosHoy() {
         .filter(t => t.estado === 'Asignado' && normalizeYMD(t.fecha_reporte) === hoy)
         .map(t => normalizeRut(t.rut))
     );
-    dbg.group('📌 asignadosDesdeEndpoint (filtrados por HOY)');
+    dbg.group(' asignadosDesdeEndpoint (filtrados por HOY)');
     dbg.log('Total:', set.size, 'Ejemplos:', Array.from(set).slice(0, 10));
     dbg.end();
     return set;

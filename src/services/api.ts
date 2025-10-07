@@ -13,7 +13,7 @@ const api = axios.create({
   }
 });
 
-// ✅ Interceptor para agregar token JWT en cada request
+//  Interceptor para agregar token JWT en cada request
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
   if (token) {
@@ -22,7 +22,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// ✅ Interceptor para manejar errores de autenticación
+//  Interceptor para manejar errores de autenticación
 api.interceptors.response.use(
   (response) => response,
   (error) => {

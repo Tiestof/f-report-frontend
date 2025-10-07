@@ -33,7 +33,7 @@ function dateWithOffset(days: number): string {
 }
 
 export default function DashboardHome() {
-  // 🗓️ Calculamos el rango dinámico: hoy -10 y hoy +10
+  // Calculamos el rango dinámico: hoy -10 y hoy +10
   const fechaInicio = dateWithOffset(-25);
   const fechaFin = dateWithOffset(5);
 

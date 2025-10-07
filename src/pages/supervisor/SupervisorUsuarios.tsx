@@ -48,7 +48,7 @@ const SupervisorUsuarios = () => {
   const [showFormHelp, setShowFormHelp] = useState(false);
   const [showListHelp, setShowListHelp] = useState(false);
 
-  // ✅ Cargar usuarios desde API
+  // Cargar usuarios desde API
   const fetchUsuarios = async () => {
     try {
       setLoading(true);
@@ -69,7 +69,7 @@ const SupervisorUsuarios = () => {
     fetchUsuarios();
   }, []);
 
-  // ✅ Validación
+  // Validación
   const validate = () => {
     const newErrors: { [key: string]: string } = {};
     const rutClean = cleanRUTForAPI(formData.rut);
@@ -195,7 +195,7 @@ const SupervisorUsuarios = () => {
           Alta, baja y modificación de cuentas de usuario.
         </p>
 
-        {/* 📌 Formulario */}
+        {/* Formulario */}
         <div className="bg-white dark:bg-gray-700 shadow rounded-lg p-3 sm:p-6 mb-6 w-full max-w-full">
           <h2 className="text-lg font-bold text-gray-700 dark:text-gray-100 mb-4 flex justify-between items-center">
             {editingUser ? 'Editar Usuario' : 'Crear Usuario'}
@@ -280,7 +280,7 @@ const SupervisorUsuarios = () => {
           </button>
         </div>
 
-        {/* 📌 Búsqueda y filtro */}
+        {/* Búsqueda y filtro */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-2">
           <input
             type="text"
@@ -302,13 +302,13 @@ const SupervisorUsuarios = () => {
           </select>
         </div>
 
-        {/* 📌 Lista de usuarios */}
+        {/* Lista de usuarios */}
         <div className="bg-white dark:bg-gray-700 shadow rounded-lg overflow-x-auto w-full max-w-full">
           {loading ? (
             <Skeleton count={6} height={40} />
           ) : (
             <>
-              {/* ✅ Vista tabla desktop */}
+              {/* Vista tabla desktop */}
               <div className="hidden sm:block">
                 <table className="min-w-full">
                   <thead className="bg-gray-100 dark:bg-gray-800">
@@ -358,7 +358,7 @@ const SupervisorUsuarios = () => {
                 </table>
               </div>
 
-              {/* ✅ Vista tipo cards para móvil */}
+              {/* Vista tipo cards para móvil */}
               <div className="block sm:hidden space-y-3">
                 {filteredUsuarios.map((u) => (
                   <div key={u.rut} className="border dark:border-gray-600 rounded-lg p-3 shadow-sm bg-white dark:bg-gray-700">
@@ -398,7 +398,7 @@ const SupervisorUsuarios = () => {
         </div>
       </div>
 
-      {/* ✅ Modal Ayuda Formulario */}
+      {/* Modal Ayuda Formulario */}
       {showFormHelp && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto text-gray-800 dark:text-gray-100">
@@ -421,7 +421,7 @@ const SupervisorUsuarios = () => {
         </div>
       )}
 
-      {/* ✅ Modal Ayuda Listado */}
+      {/* Modal Ayuda Listado */}
       {showListHelp && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 shadow-lg max-h-[80vh] overflow-y-auto text-gray-800 dark:text-gray-100">
