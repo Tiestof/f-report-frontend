@@ -2,24 +2,19 @@
  * ============================================================
  * Componente: src/components/informes/InformeReporte.tsx
  * Propósito:
- *  - Renderizar “Informe de Reporte” (individual) con plantillas A/B.
- *  - Cargar reporte + evidencias + gastos desde la API (endpoints existentes).
- *  - Exportar a PDF (html2canvas + jsPDF), evidencias 1 por página.
+ *  - Renderizar “Informe de Reporte”.
+ *  - Cargar reporte + evidencias + gastos desde la API.
+ *  - Exportar a PDF (html2canvas + jsPDF).
  *
- * Correcciones clave:
- *  - Reutiliza resolveMediaUrl / isImageUrl (como en los modales) para mostrar imágenes.
- *  - Firma digital (id_tipo_evidencia === 3):
- *      • Mostrar sólo "Tipo de evidencia" y "Nombre quien recibe el trabajo" (desde modelo).
- *      • Mostrar imagen grande (preferentemente firma dibujada).
- *  - Otros tipos de evidencia:
- *      • Mostrar campos conocidos con N/A si vienen nulos.
- *      • Imagen grande debajo; si falla, sin links (sólo aviso).
- *  - Técnico: nombre completo + RUT.
- *  - Título “F-REPORT” en mayúsculas.
- *  - Cabecera: se muestra Dirección (sin mini-mapa).
- *
- * TODO/FIXME:
- *  - Ajustar nombres exactos de campos de dirección si el backend cambia.
+ * Cambios:
+ *  - Fix de errores de compilación (línea residual y estado triedSwap).
+ *  - Firma Digital: solo Tipo de evidencia, ID evidencia, Nombre quien recibe, Imagen.
+ *  - Otras evidencias: NO “Comentario”, NO “Fecha” (creación). MAC unificado solo si hay dato.
+ *  - Centro de Costo: si hay RUT Empresa de Cobro, buscar su descripción y mostrar en “Centro de Costo”.
+ *  - Técnico Responsable: completar con nombre + apellidos desde /usuarios/:rut si falta.
+ *  - Datos logísticos: recuadro aparte, con Dirección (calle) primero, luego Número, Sector, Piso, Edificio,
+ *    Comuna, Ciudad, Región, País (con fallbacks).
+ *  - Gastos: monto formateado CLP sin decimales incluso si llega como string.
  * ============================================================
  */
 
@@ -36,35 +31,44 @@ import jsPDF from 'jspdf';
 import api from '../../services/api';
 import { formatISODateToCL } from '../../utils/dateFormat';
 import { formatRUTDisplay } from '../../utils/rutFormatter';
-import { resolveMediaUrl, isImageUrl, swapUploadsApi } from '../../components/ui/urlResolver';
+import { resolveMediaUrl, isImageUrl } from '../../utils/urlResolver';
+
+// Alterna /uploads ↔ /api/uploads si una imagen falla
+function swapUploadsApiLocal(url: string): string {
+  if (!url) return url;
+  if (url.includes('/api/uploads')) return url.replace('/api/uploads', '/uploads');
+  return url.replace('/uploads', '/api/uploads');
+}
 
 // ------------------ Tipos tolerantes ------------------
 type Evidencia = {
   id_evidencia: number;
 
-  // URLs posibles según backend
+  // URLs
   url?: string | null;
   url_imagen?: string | null;
   comprobante_url?: string | null;
   url_comprobante?: string | null;
   imagen_url?: string | null;
 
-  // Catálogo de tipo
+  // Catálogo
   id_tipo_evidencia?: number | null; // 3 -> Firma Digital
   descripcion_tipo_evidencia?: string | null;
 
   // Metadatos
-  modelo?: string | null;            // En firma digital: nombre firmante
-  serie?: string | null;
-  numero_serie?: string | null;
-  ip?: string | null;
+  modelo?: string | null;            // Firma: nombre firmante
+  numero_serie?: string | null;      // N° Serie
   ipv4?: string | null;
   ipv6?: string | null;
   mac?: string | null;
   macadd?: string | null;
   nombre_maquina?: string | null;
-  fecha?: string | null;
+
+  // Fechas
+  fecha?: string | null;             // no se muestra
   fecha_subida?: string | null;
+
+  // Texto (no mostrar "comentario" en informe para otras evidencias)
   descripcion?: string | null;
 
   [k: string]: any;
@@ -72,9 +76,11 @@ type Evidencia = {
 
 type Gasto = {
   id_gasto: number;
+  comentario?: string | null;
   descripcion?: string | null;
-  monto?: number | null;
+  monto?: number | string | null;
   fecha?: string | null;
+  fecha_gasto?: string | null;
 
   url?: string | null;
   url_imagen?: string | null;
@@ -88,47 +94,57 @@ type Gasto = {
 type Reporte = {
   id_reporte: number;
   fecha_reporte: string;
+
+  // Técnico
   rut_responsable: string;
   nombre_responsable?: string | null;
 
+  // Estado
   id_estado_servicio?: number;
   estado_servicio?: string | null;
 
+  // Cliente / Cobro
   rut_cliente?: string | null;
   nombre_cliente?: string | null;
-
   id_rut_empresa_cobro?: string | null;
   nombre_centro_costo?: string | null;
 
+  // Dirección desglosada o variantes antiguas
+  calle?: string | null;
+  numero?: string | null;
+  sector?: string | null;
+  barrio?: string | null;
+  piso?: string | null;
+  edificio?: string | null;
+  comuna?: string | null;
+  ciudad?: string | null;
+  region?: string | null;
+  pais?: string | null;
+  direccion?: string | null;
+
   direccion_calle?: string | null;
+  direccion_numero?: string | null;
   direccion_comuna?: string | null;
   direccion_ciudad?: string | null;
 
   observaciones?: string | null;
+  comentario?: string | null;
+
   [k: string]: any;
 };
 
 export interface InformeReporteProps {
-  /** ID del reporte a visualizar */
   reporteId: number;
-  /** Plantilla visual */
   plantilla: 'A' | 'B';
-  /** Si true, descarga PDF automáticamente al montar y cargar todo */
   autoExport?: boolean;
-  /** Oculta el botón “Exportar PDF” si se deja en false */
   showExportButton?: boolean;
-  /** Por defecto NO mostrar gastos; si true, inicia visible y se incluyen en PDF */
   defaultShowGastos?: boolean;
-  /** Callback opcional cuando termina de exportar */
   onExported?: () => void;
 }
 
-export type InformeReporteHandle = {
-  /** Dispara la exportación a PDF programáticamente */
-  exportPDF: () => Promise<void>;
-};
+export type InformeReporteHandle = { exportPDF: () => Promise<void> };
 
-// ------------------ Helpers locales ------------------
+// ------------------ Helpers ------------------
 function kvListAll(
   obj: Record<string, any>,
   map: Record<string, string>
@@ -137,7 +153,6 @@ function kvListAll(
   Object.entries(map).forEach(([key, label]) => {
     let v = obj[key];
     if (v === undefined || v === null || v === '') v = 'N/A';
-    // Fechas a formato CL
     if (String(key).toLowerCase().includes('fecha') && v !== 'N/A') {
       v = formatISODateToCL(String(v));
     }
@@ -150,6 +165,31 @@ function nowStamp() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
+function formatCLP(value: number | string | null | undefined): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 'N/A';
+  return `$ ${n.toLocaleString('es-CL', { maximumFractionDigits: 0, minimumFractionDigits: 0 })} CLP`;
+}
+
+// Normaliza RUT para API: elimina puntos y espacios, mantiene guión
+function normalizeRutForApi(rut?: string | null): string | null {
+  if (!rut) return null;
+  return rut.replace(/\./g, '').replace(/\s+/g, '').trim();
+}
+
+// Intenta construir nombre completo desde varios alias de campos
+function buildFullName(u: any): string | null {
+  if (!u) return null;
+  const nombre = u.nombre || u.nombres || u.first_name || '';
+  const segundo = u.segundo_nombre || u.segundoNombre || u.middle_name || '';
+  const apPat = u.apellido_paterno || u.apellidoPaterno || u.apellido || u.last_name || '';
+  const apMat = u.apellido_materno || u.apellidoMaterno || u.second_last_name || u.apellidos || '';
+  const candidato =
+    (u.nombre_completo && String(u.nombre_completo).trim()) ||
+    [nombre, segundo, apPat, apMat].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  return candidato || null;
 }
 
 // ------------------ Hook de datos ------------------
@@ -167,12 +207,52 @@ function useReporteCompleto(id: number) {
 
     (async () => {
       try {
-        // Reporte
+        // 1) Reporte base
         const repRes = await api.get(`/reportes/${id}`);
-        const rep: Reporte = repRes?.data?.data || repRes?.data || repRes;
+        let rep: Reporte = repRes?.data?.data || repRes?.data || (repRes as any);
+
+        // 2) Enriquecer: Centro de Costo desde RUT Empresa de Cobro
+        if (rep?.id_rut_empresa_cobro && !rep?.nombre_centro_costo) {
+          const rutCC = normalizeRutForApi(rep.id_rut_empresa_cobro);
+          if (rutCC) {
+            const tryEndpoints = [
+              `/centro-costo/${rutCC}`,
+              `/centros-costo/${rutCC}`,
+              `/empresas-cobro/${rutCC}`,
+              `/empresa-cobro/${rutCC}`,
+            ];
+            for (const ep of tryEndpoints) {
+              try {
+                const r = await api.get(ep);
+                const d = r?.data?.data || r?.data || null;
+                const nombre = d?.descripcion || d?.nombre || d?.nombre_centro_costo || null;
+                if (nombre) {
+                  rep.nombre_centro_costo = String(nombre);
+                  break;
+                }
+              } catch {
+                /* intenta siguiente endpoint */
+              }
+            }
+          }
+        }
+
+        // 3) Enriquecer: Técnico Responsable desde RUT
+        if (rep?.rut_responsable && (!rep?.nombre_responsable || String(rep.nombre_responsable).trim().split(' ').length < 2)) {
+          const rutTec = normalizeRutForApi(rep.rut_responsable) ?? rep.rut_responsable;
+          try {
+            const uRes = await api.get(`/usuarios/${rutTec}`);
+            const u = uRes?.data?.data || uRes?.data || null;
+            const full = buildFullName(u);
+            if (full) rep.nombre_responsable = full;
+          } catch {
+            /* silencioso */
+          }
+        }
+
         if (!active) return;
 
-        // Evidencias
+        // 4) Evidencias
         let evids: Evidencia[] = [];
         try {
           const evRes = await api.get(`/evidencias/reporte/${id}`);
@@ -184,7 +264,7 @@ function useReporteCompleto(id: number) {
         }
         if (!active) return;
 
-        // Gastos
+        // 5) Gastos
         let gsts: Gasto[] = [];
         try {
           const gsRes = await api.get(`/gastos/reporte/${id}`);
@@ -265,7 +345,7 @@ async function exportInformeToPDF(
     pdf.addImage(img, 'PNG', x, y, w, h);
   }
 
-  // Gastos (opcional): cada gasto como tarjeta en su propia página
+  // Gastos (opcional)
   if (incluirGastos) {
     for (const node of gastosBlocks) {
       const c = await html2canvas(node, {
@@ -310,11 +390,11 @@ const SubTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </h4>
 );
 
-/** Bloque de evidencia con manejo especial para firma digital (id_tipo_evidencia = 3) */
+/** Bloque de evidencia */
 const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
   const isFirma = Number(ev.id_tipo_evidencia) === 3;
 
-  // normalizamos URL igual que en los modales
+  // URL normalizada
   const rawUrl =
     ev.url ||
     ev.url_imagen ||
@@ -329,29 +409,34 @@ const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
 
   const showImg = isImageUrl(imgSrc || undefined);
 
-  // Mapeos: firma digital muestra sólo 2 campos
-  const baseMap: Record<string, string> = isFirma
-    ? {
-        descripcion_tipo_evidencia: 'Tipo de evidencia',
-        modelo: 'Nombre quien recibe el trabajo',
-      }
-    : {
-        descripcion_tipo_evidencia: 'Tipo de evidencia',
-        fecha: 'Fecha',
-        fecha_subida: 'Fecha de subida',
-        numero_serie: 'N° Serie',
-        serie: 'Serie',
-        ip: 'IP',
-        ipv4: 'IPv4',
-        ipv6: 'IPv6',
-        mac: 'MAC',
-        macadd: 'MAC',
-        nombre_maquina: 'Nombre máquina',
-        descripcion: 'Descripción',
-        modelo: 'Modelo',
-      };
+  // Mapeo (sin "Comentario" en otras evidencias)
+  const baseMapFirma: Record<string, string> = {
+    descripcion_tipo_evidencia: 'Tipo de evidencia',
+    id_evidencia: 'ID evidencia',
+    modelo: 'Nombre quien recibe el trabajo',
+  };
 
-  const kv = kvListAll({ ...ev }, baseMap);
+  const baseMapOtros: Record<string, string> = {
+    descripcion_tipo_evidencia: 'Tipo de evidencia',
+    // fecha: 'Fecha',   // eliminado
+    fecha_subida: 'Fecha de subida',
+    numero_serie: 'N° Serie',
+    ipv4: 'IPv4',
+    ipv6: 'IPv6',
+    nombre_maquina: 'Nombre máquina',
+    modelo: 'Modelo',
+    // MAC se agrega abajo si hay dato
+  };
+
+  const kv = kvListAll(ev, isFirma ? baseMapFirma : baseMapOtros);
+
+  // MAC unificado solo si NO es firma y hay dato
+  if (!isFirma) {
+    const macUnified = ev.mac || ev.macadd || '';
+    if (macUnified && String(macUnified).trim() !== '') {
+      kv.push(['MAC', String(macUnified)]);
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -367,7 +452,7 @@ const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
         </div>
       )}
 
-      {/* Imagen (sin links). Si falla, intentamos swap /uploads ↔ /api/uploads una sola vez */}
+      {/* Imagen */}
       <div className="flex items-center justify-center">
         {imgSrc && showImg ? (
           // eslint-disable-next-line jsx-a11y/alt-text
@@ -379,9 +464,9 @@ const EvidenciaBlock: React.FC<{ ev: Evidencia }> = ({ ev }) => {
             onError={() => {
               if (!triedSwap) {
                 setTriedSwap(true);
-                setImgSrc((s) => (s ? swapUploadsApi(s) : s));
+                setImgSrc((s) => (s ? swapUploadsApiLocal(s) : s));
               } else {
-                setImgSrc(null); // ocultar si también falla el alternativo
+                setImgSrc(null);
               }
             }}
           />
@@ -410,24 +495,11 @@ const GastoBlock: React.FC<{ g: Gasto }> = ({ g }) => {
 
   const asImg = isImageUrl(imgSrc || undefined);
 
-  const kv = kvListAll(
-    {
-      descripcion: g.descripcion,
-      monto:
-        g.monto === null || g.monto === undefined
-          ? null
-          : (g.monto as number).toLocaleString('es-CL', {
-              style: 'currency',
-              currency: 'CLP',
-            }),
-      fecha: g.fecha,
-    },
-    {
-      descripcion: 'Descripción',
-      monto: 'Monto',
-      fecha: 'Fecha',
-    }
-  );
+  const kv = [
+    ['Comentario gasto', g.comentario ?? g.descripcion ?? 'N/A'],
+    ['Monto', formatCLP(g.monto ?? 0)],
+    ['Fecha', g.fecha_gasto ? formatISODateToCL(g.fecha_gasto) : g.fecha ? formatISODateToCL(g.fecha) : 'N/A'],
+  ] as Array<[string, string]>;
 
   return (
     <div className="mx-auto w-full max-w-3xl rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -452,7 +524,7 @@ const GastoBlock: React.FC<{ g: Gasto }> = ({ g }) => {
               onError={() => {
                 if (!triedSwap) {
                   setTriedSwap(true);
-                  setImgSrc((s) => (s ? swapUploadsApi(s) : s));
+                  setImgSrc((s) => (s ? swapUploadsApiLocal(s) : s));
                 } else {
                   setImgSrc(null);
                 }
@@ -497,7 +569,7 @@ const HeaderB: React.FC = () => (
   </div>
 );
 
-// ------------------ Componente Principal (con forwardRef) ------------------
+// ------------------ Componente Principal ------------------
 const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
   (
     {
@@ -519,15 +591,70 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
     const evidContainerRef = useRef<HTMLDivElement | null>(null);
     const gastosContainerRef = useRef<HTMLDivElement | null>(null);
 
-    const direccion = useMemo(() => {
-      if (!reporte) return '';
-      const parts = [reporte.direccion_calle, reporte.direccion_comuna, reporte.direccion_ciudad]
-        .filter(Boolean)
-        .join(', ');
-      return parts || '';
+    // Dirección: recuadro “Datos logísticos”
+    const datosLogisticos = useMemo(() => {
+      if (!reporte) return [] as Array<[string, string]>;
+
+      // Dirección (nombre de la calle) como PRIMER campo
+      const direccionNombre =
+        reporte.direccion ??
+        reporte.direccion_calle ??
+        reporte.calle ??
+        null;
+
+      // El resto de campos
+      const objResto: Record<string, any> = {
+        numero: reporte.numero ?? reporte.direccion_numero ?? null,
+        sector: reporte.sector ?? reporte.barrio ?? null,
+        piso: reporte.piso ?? null,
+        edificio: reporte.edificio ?? null,
+        comuna: reporte.comuna ?? reporte.direccion_comuna ?? null,
+        ciudad: reporte.ciudad ?? reporte.direccion_ciudad ?? null,
+        region: reporte.region ?? null,
+        pais: reporte.pais ?? null,
+      };
+
+      const items: Array<[string, string]> = [];
+      if (direccionNombre && String(direccionNombre).trim() !== '') {
+        items.push(['Dirección', String(direccionNombre)]);
+      }
+
+      const labelMap: Record<string, string> = {
+        numero: 'Número',
+        sector: 'Sector',
+        piso: 'Piso',
+        edificio: 'Edificio',
+        comuna: 'Comuna',
+        ciudad: 'Ciudad',
+        region: 'Región',
+        pais: 'País',
+      };
+
+      Object.entries(labelMap).forEach(([k, label]) => {
+        const val = objResto[k];
+        if (val !== null && val !== undefined && String(val).trim() !== '') {
+          items.push([label, String(val)]);
+        }
+      });
+
+      // Si no cargó nada, intentar fallback a cadena completa
+      if (items.length === 0) {
+        const joined =
+          [
+            reporte.direccion_calle,
+            reporte.direccion_comuna,
+            reporte.direccion_ciudad,
+          ]
+            .filter(Boolean)
+            .join(', ') || reporte.direccion || '';
+        if (joined) items.push(['Dirección', joined]);
+      }
+
+      return items;
     }, [reporte]);
 
-    const Header = plantilla === 'A' ? HeaderA : HeaderB;
+    // Elegir cabecera sin warning TS2774
+    const HeaderComp = useMemo(() => (plantilla === 'A' ? HeaderA : HeaderB), [plantilla]);
 
     const datosReporte = useMemo(
       () =>
@@ -536,7 +663,7 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
             id_reporte: reporte?.id_reporte,
             fecha_reporte: reporte?.fecha_reporte,
             estado_servicio: reporte?.estado_servicio,
-            observaciones: reporte?.observaciones,
+            observaciones: reporte?.observaciones ?? reporte?.comentario ?? null,
           },
           {
             id_reporte: 'ID de Reporte',
@@ -563,7 +690,7 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
       [reporte]
     );
 
-    const datosCliente = useMemo(
+    const datosClienteCobro = useMemo(
       () =>
         kvListAll(
           {
@@ -584,21 +711,18 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
       [reporte]
     );
 
-    const totalGastos = useMemo(
-      () =>
-        (gastos || []).reduce(
-          (acc, g) => acc + (Number.isFinite(g.monto || 0) ? (g.monto as number) : 0),
-          0
-        ),
-      [gastos]
-    );
+    const totalGastos = useMemo(() => {
+      return (gastos || []).reduce((acc, g) => {
+        const val = Number(g?.monto);
+        return acc + (Number.isFinite(val) ? val : 0);
+      }, 0);
+    }, [gastos]);
 
     // Exportación
     const doExport = async () => {
       if (!portadaRef.current) return;
 
-      // Espera breve para asegurar carga de imágenes
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 300)); // asegurar carga de imágenes
 
       const evidBlocks = Array.from(
         evidContainerRef.current?.querySelectorAll<HTMLElement>('[data-evidencia="1"]') || []
@@ -616,7 +740,6 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
 
     useImperativeHandle(ref, () => ({ exportPDF: doExport }), [incluirGastos, onExported]);
 
-    // Auto export tras cargar todo
     useEffect(() => {
       if (autoExport && !loading && !error) {
         const t = setTimeout(() => {
@@ -645,7 +768,7 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
           ref={portadaRef}
           className="mx-auto w-full max-w-4xl rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
         >
-          <Header />
+          <HeaderComp />
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
@@ -671,15 +794,30 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
             </div>
 
             <div>
-              <SubTitle>Cliente / Centro de Costo</SubTitle>
+              <SubTitle>Cliente y Cobro</SubTitle>
               <div className="mt-2 space-y-1">
-                {datosCliente.map(([k, v]) => (
+                {datosClienteCobro.map(([k, v]) => (
                   <Field key={k} label={k}>
                     {v}
                   </Field>
                 ))}
-                <Field label="Dirección">{direccion || 'N/A'}</Field>
               </div>
+            </div>
+          </div>
+
+          {/* Datos logísticos */}
+          <div className="mt-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+            <SubTitle>Datos logísticos</SubTitle>
+            <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 md:grid-cols-2">
+              {datosLogisticos.length > 0 ? (
+                datosLogisticos.map(([label, value]) => (
+                  <Field key={label} label={label}>
+                    {value}
+                  </Field>
+                ))
+              ) : (
+                <Field label="Dirección">N/A</Field>
+              )}
             </div>
           </div>
 
@@ -689,16 +827,21 @@ const InformeReporte = forwardRef<InformeReporteHandle, InformeReporteProps>(
               <div className="text-xs text-zinc-500">Evidencias</div>
               <div className="text-xl font-semibold">{(evidencias || []).length}</div>
             </div>
-            <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-              <div className="text-xs text-zinc-500">Gastos</div>
-              <div className="text-xl font-semibold">{(gastos || []).length}</div>
-            </div>
-            <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-              <div className="text-xs text-zinc-500">Total Gastos</div>
-              <div className="text-xl font-semibold">
-                {totalGastos.toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
-              </div>
-            </div>
+
+            {incluirGastos && (
+              <>
+                <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                  <div className="text-xs text-zinc-500">Gastos</div>
+                  <div className="text-xl font-semibold">{(gastos || []).length}</div>
+                </div>
+                <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                  <div className="text-xs text-zinc-500">Total Gastos</div>
+                  <div className="text-xl font-semibold">
+                    {formatCLP(totalGastos)}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Toggle gastos en PDF */}
